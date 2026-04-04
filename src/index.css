@@ -1,0 +1,143 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Inter:wght@300;400;500&display=swap');
+
+body {
+  background: #EBEBEB;
+  font-family: 'Inter', sans-serif;
+  color: #0D1B3E;
+}
+
+header {
+  background: #0D1B3E;
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header h1 {
+  font-family: 'Oswald', sans-serif;
+  color: #FF0028;
+  font-size: 24px;
+  letter-spacing: 2px;
+}
+
+header span {
+  color: white;
+  font-size: 14px;
+}
+
+.dashboard-container {
+  max-width: 1200px;
+  margin: 32px auto;
+  padding: 0 24px;
+}
+
+.funis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.funil-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  border-left: 4px solid #FF0028;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.funil-card h3 {
+  font-family: 'Oswald', sans-serif;
+  font-size: 16px;
+  color: #0D1B3E;
+  margin-bottom: 8px;
+}
+
+.badge-verde { background: #22c55e; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-amarelo { background: #eab308; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-vermelho { background: #ef4444; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-sem-dados { background: #94a3b8; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+
+.links-section { margin-top: 40px; }
+.links-section h2 { font-family: 'Oswald', sans-serif; color: #0D1B3E; font-size: 22px; margin-bottom: 16px; }
+
+.links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.link-card {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #FF0028;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.link-card h4 { font-family: 'Oswald', sans-serif; color: #0D1B3E; margin-bottom: 6px; }
+.link-card p { font-size: 12px; color: #555; margin-bottom: 10px; word-break: break-all; }
+
+.btn-copiar {
+  background: #FF0028;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Oswald', sans-serif;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.btn-copiar:hover { background: #8B0000; }
+
+.form-container {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 0 24px;
+}
+
+.form-card {
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.form-card h2 { font-family: 'Oswald', sans-serif; color: #0D1B3E; font-size: 24px; margin-bottom: 24px; }
+
+label { display: block; font-family: 'Oswald', sans-serif; color: #0D1B3E; font-size: 14px; margin-bottom: 4px; margin-top: 16px; }
+
+input[type="number"], input[type="week"], input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  transition: border 0.2s;
+}
+
+input:focus { outline: none; border-color: #FF0028; box-shadow: 0 0 0 2px rgba(255,0,40,0.1); }
+
+.btn-enviar {
+  width: 100%;
+  background: #FF0028;
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-family: 'Oswald', sans-serif;
+  font-size: 18px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  margin-top: 24px;
+}
+
+.btn-enviar:hover { background: #8B0000; }
+
+.sucesso { background: #dcfce7; border: 1px solid #22c55e; color: #166534; padding: 16px; border-radius: 8px; margin-top: 16px; text-align: center; font-weight: 500; }
