@@ -187,6 +187,33 @@ export function DashboardPage() {
   const [rows, setRows] = useState({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [pendingActions, setPendingActions] = useState([]);
+
+  const loadPendingActions = useCallback(() => {
+    const items = [];
+    Object.entries(FUNNEL_FORMS).forEach(([slug, cfg]) => {
+      const key = `acoes-${slug}`;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
+        if (!Array.isArray(parsed)) return;
+        parsed.forEach((item) => {
+          if (!item || typeof item !== "object") return;
+          if (!item.id || !item.texto) return;
+          items.push({
+            id: item.id,
+            texto: item.texto,
+            prazo: item.prazo ?? "",
+            responsavel: item.responsavel ?? "",
+            slug,
+            funnelTitle: cfg.title,
+          });
+        });
+      } catch {
+        /* ignore local parse errors */
+      }
+    });
+    setPendingActions(items);
+  }, []);
 
   const load = useCallback(async () => {
     if (!supabase) {
@@ -219,6 +246,43 @@ export function DashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadPendingActions();
+    const onStorage = () => loadPendingActions();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onStorage);
+    };
+  }, [loadPendingActions]);
+
+  const updatePendingAction = (slug, id, patch) => {
+    const key = `acoes-${slug}`;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
+      if (!Array.isArray(parsed)) return;
+      const updated = parsed.map((item) => (item?.id === id ? { ...item, ...patch } : item));
+      localStorage.setItem(key, JSON.stringify(updated));
+      loadPendingActions();
+    } catch {
+      /* ignore local parse errors */
+    }
+  };
+
+  const completePendingAction = (slug, id) => {
+    const key = `acoes-${slug}`;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
+      if (!Array.isArray(parsed)) return;
+      const updated = parsed.filter((item) => item?.id !== id);
+      localStorage.setItem(key, JSON.stringify(updated));
+      loadPendingActions();
+    } catch {
+      /* ignore local parse errors */
+    }
+  };
 
   const headerStyle = {
     background: C.dark,
@@ -397,6 +461,90 @@ export function DashboardPage() {
             })}
           </div>
         )}
+
+        <section
+          style={{
+            background: C.white,
+            borderRadius: 8,
+            padding: 24,
+            marginBottom: 24,
+            borderLeft: `4px solid ${C.primary}`,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "Oswald, sans-serif",
+              color: C.dark,
+              fontSize: 18,
+              marginBottom: 16,
+              fontWeight: 700,
+            }}
+          >
+            Ações Pendentes
+          </h2>
+          {pendingActions.length === 0 ? (
+            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              {pendingActions.map((item) => (
+                <li
+                  key={`${item.slug}-${item.id}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "24px minmax(180px, 1fr) minmax(200px, 1fr) 160px 170px",
+                    gap: 10,
+                    alignItems: "center",
+                    background: C.bg,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    onChange={() => completePendingAction(item.slug, item.id)}
+                    style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                    aria-label={`Concluir ação ${item.texto}`}
+                  />
+                  <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                  <span style={{ fontSize: 13, color: "#555555" }}>{item.funnelTitle}</span>
+                  <input
+                    type="date"
+                    value={item.prazo}
+                    onChange={(e) => updatePendingAction(item.slug, item.id, { prazo: e.target.value })}
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "8px 10px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  />
+                  <select
+                    value={item.responsavel}
+                    onChange={(e) => updatePendingAction(item.slug, item.id, { responsavel: e.target.value })}
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "8px 10px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  >
+                    <option value="">Responsável</option>
+                    <option value="Diogo">Diogo</option>
+                    <option value="Turí">Turí</option>
+                    <option value="Pedro">Pedro</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <FormLinksSection />
       </div>

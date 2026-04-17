@@ -3,10 +3,22 @@ import { useNavigate, useParams } from "react-router-dom";
 import { FUNNEL_FORMS } from "../data/funnelForms";
 import { supabase } from "../lib/supabase";
 import { FUNNEL_EVALUATORS } from "../utils/semaphores";
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const C = { bg: "#EBEBEB", primary: "#FF0028", dark: "#0D1B3E", white: "#FFFFFF" };
 
 function fmt(v) { if (v == null) return "—"; return typeof v === "number" ? v.toLocaleString("pt-BR") : String(v); }
+
+function fmtDataSemanaDDMM(value) {
+  if (value == null || value === "") return "—";
+  const s = String(value);
+  const iso = s.length === 10 ? `${s}T12:00:00` : s;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return s;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
 
 function Semaforo({ pct }) {
   const cor = pct == null ? "#94a3b8" : pct >= 100 ? "#22c55e" : pct >= 70 ? "#eab308" : "#ef4444";
@@ -47,14 +59,29 @@ export function FunilDetailPage() {
   const navigate = useNavigate();
   const cfg = FUNNEL_FORMS[slug];
   const [rows, setRows] = useState([]);
+  const [chartRows, setChartRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acoes, setAcoes] = useState(() => JSON.parse(localStorage.getItem(`acoes-${slug}`) ?? "[]"));
   const [novaAcao, setNovaAcao] = useState("");
 
   useEffect(() => {
-    if (!cfg || !supabase) { setLoading(false); return; }
-    supabase.from(cfg.table).select("*").order("data_semana", { ascending: false }).limit(2)
-      .then(({ data }) => { setRows(data ?? []); setLoading(false); });
+    if (!cfg || !supabase) {
+      setRows([]);
+      setChartRows([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    Promise.all([
+      supabase.from(cfg.table).select("*").order("data_semana", { ascending: false }).limit(2),
+      supabase.from(cfg.table).select("*").order("data_semana", { ascending: false }).limit(8),
+    ]).then(([{ data: d2 }, { data: d8 }]) => {
+      setRows(d2 ?? []);
+      const list = d8 ?? [];
+      list.sort((a, b) => String(a.data_semana).localeCompare(String(b.data_semana)));
+      setChartRows(list);
+      setLoading(false);
+    });
   }, [cfg, slug]);
 
   useEffect(() => {
@@ -74,6 +101,12 @@ export function FunilDetailPage() {
 
   const removeAcao = (id) => setAcoes(prev => prev.filter(a => a.id !== id));
 
+  const chartValueKey = slug === "pago-meta" ? "valor_investido" : "vendas";
+  const chartData = chartRows.map(row => ({
+    semana: fmtDataSemanaDDMM(row.data_semana),
+    [chartValueKey]: row[chartValueKey] == null ? 0 : Number(row[chartValueKey]),
+  }));
+
   if (!cfg) return <div style={{ padding: 32 }}>Funil não encontrado.</div>;
 
   return (
@@ -90,6 +123,35 @@ export function FunilDetailPage() {
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
               <CardSemana title="Semana atual" row={rows[0]} slug={slug} />
               <CardSemana title="Semana anterior" row={rows[1]} slug={slug} />
+            </div>
+
+            <div
+              style={{
+                background: C.white,
+                borderRadius: 8,
+                padding: 24,
+                marginBottom: 24,
+                borderLeft: "4px solid #FF0028",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>Evolução Semanal</h2>
+              {!supabase ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Supabase não configurado.</p>
+              ) : chartRows.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Sem dados para o gráfico.</p>
+              ) : (
+                <div style={{ width: "100%", height: 280 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                      <XAxis dataKey="semana" tick={{ fontSize: 12, fill: "#555" }} />
+                      <YAxis tick={{ fontSize: 12, fill: "#555" }} />
+                      <Tooltip />
+                      <Bar dataKey={chartValueKey} fill="#FF0028" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
 
             <div style={{ background: C.white, borderRadius: 8, padding: 24, marginBottom: 24, borderLeft: `4px solid ${C.primary}`, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
