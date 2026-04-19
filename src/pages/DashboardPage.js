@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FUNNEL_FORMS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
@@ -35,6 +35,55 @@ function formatWeekDate(isoDate) {
   } catch {
     return String(isoDate);
   }
+}
+
+function parseDateOnlyYmd(str) {
+  if (!str || typeof str !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str.trim());
+  if (!m) return null;
+  const y = Number(m[1], 10);
+  const mo = Number(m[2], 10) - 1;
+  const d = Number(m[3], 10);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  return new Date(y, mo, d);
+}
+
+function startOfTodayLocal() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+
+function addDaysLocal(date, days) {
+  const x = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function calendarDiffDays(fromStartOfDay, toStartOfDay) {
+  const a = new Date(fromStartOfDay.getFullYear(), fromStartOfDay.getMonth(), fromStartOfDay.getDate()).getTime();
+  const b = new Date(toStartOfDay.getFullYear(), toStartOfDay.getMonth(), toStartOfDay.getDate()).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+function formatPrazoDdMmYyyy(date) {
+  if (!date) return "—";
+  try {
+    return date.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function vencendoPrazoColor(prazoDate, todayStart) {
+  const diff = calendarDiffDays(todayStart, prazoDate);
+  if (diff < 0) return "#ef4444";
+  if (diff <= 2) return "#eab308";
+  if (diff >= 3 && diff <= 7) return "#22c55e";
+  return "#555555";
 }
 
 function badgeStyle(light) {
@@ -188,6 +237,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [pendingActions, setPendingActions] = useState([]);
+  const [vencendoResponsavel, setVencendoResponsavel] = useState("Todos");
 
   const loadPendingActions = useCallback(() => {
     const items = [];
@@ -214,6 +264,28 @@ export function DashboardPage() {
     });
     setPendingActions(items);
   }, []);
+
+  const vencendoEmBreveList = useMemo(() => {
+    const todayStart = startOfTodayLocal();
+    const endWindow = addDaysLocal(todayStart, 7);
+    const inWindow = pendingActions
+      .map((item) => {
+        const prazoDate = parseDateOnlyYmd(item.prazo);
+        if (!prazoDate) return null;
+        if (prazoDate > endWindow) return null;
+        if (prazoDate >= todayStart && prazoDate <= endWindow) return { ...item, _prazoDate: prazoDate };
+        if (prazoDate < todayStart) return { ...item, _prazoDate: prazoDate };
+        return null;
+      })
+      .filter(Boolean);
+    inWindow.sort((a, b) => a._prazoDate.getTime() - b._prazoDate.getTime());
+    const withPrazoColor = inWindow.map((item) => ({
+      ...item,
+      _prazoColor: vencendoPrazoColor(item._prazoDate, todayStart),
+    }));
+    if (vencendoResponsavel === "Todos") return withPrazoColor;
+    return withPrazoColor.filter((item) => (item.responsavel ?? "") === vencendoResponsavel);
+  }, [pendingActions, vencendoResponsavel]);
 
   const load = useCallback(async () => {
     if (!supabase) {
@@ -461,6 +533,84 @@ export function DashboardPage() {
             })}
           </div>
         )}
+
+        <section
+          style={{
+            background: C.white,
+            borderRadius: 8,
+            padding: 24,
+            marginBottom: 24,
+            borderLeft: `4px solid ${C.primary}`,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "Oswald, sans-serif",
+              color: C.dark,
+              fontSize: 18,
+              marginBottom: 16,
+              fontWeight: 700,
+            }}
+          >
+            Vencendo em Breve
+          </h2>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {["Todos", "Diogo", "Turí", "Pedro"].map((label) => {
+              const active = vencendoResponsavel === label;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setVencendoResponsavel(label)}
+                  style={{
+                    background: active ? "#FF0028" : "#FFFFFF",
+                    color: active ? "#FFFFFF" : C.dark,
+                    border: active ? "none" : "1px solid #ddd",
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {vencendoEmBreveList.length === 0 ? (
+            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma tarefa vencendo nos próximos 7 dias.</p>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              {vencendoEmBreveList.map((item) => {
+                const resp = (item.responsavel ?? "").trim() || "—";
+                return (
+                  <li
+                    key={`${item.slug}-${item.id}-vencendo`}
+                    style={{
+                      background: C.bg,
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                      fontSize: 14,
+                      color: C.dark,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{item.texto}</span>
+                    <span style={{ color: "#94a3b8" }}> · </span>
+                    <span style={{ color: "#555555" }}>{item.funnelTitle}</span>
+                    <span style={{ color: "#94a3b8" }}> · </span>
+                    <span style={{ color: "#555555" }}>{resp}</span>
+                    <span style={{ color: "#94a3b8" }}> · </span>
+                    <span style={{ color: item._prazoColor, fontWeight: 600 }}>{formatPrazoDdMmYyyy(item._prazoDate)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         <section
           style={{
