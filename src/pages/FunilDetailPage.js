@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FUNNEL_FORMS } from "../data/funnelForms";
 import { supabase } from "../lib/supabase";
@@ -61,13 +61,38 @@ export function FunilDetailPage() {
   const [rows, setRows] = useState([]);
   const [chartRows, setChartRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [acoes, setAcoes] = useState(() => JSON.parse(localStorage.getItem(`acoes-${slug}`) ?? "[]"));
+  const [acoes, setAcoes] = useState([]);
   const [novaAcao, setNovaAcao] = useState("");
+  const [novoPrazo, setNovoPrazo] = useState("");
+  const [novoResponsavel, setNovoResponsavel] = useState("");
+
+  const loadAcoes = useCallback(async () => {
+    if (!supabase || !slug) {
+      setAcoes([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("acoes")
+      .select("*")
+      .eq("funil_slug", slug)
+      .eq("concluido", false)
+      .order("created_at", { ascending: true });
+    if (error) return;
+    setAcoes(
+      (data ?? []).map((item) => ({
+        id: item.id,
+        texto: item.texto ?? "",
+        prazo: item.prazo ?? "",
+        responsavel: item.responsavel ?? "",
+      }))
+    );
+  }, [slug]);
 
   useEffect(() => {
     if (!cfg || !supabase) {
       setRows([]);
       setChartRows([]);
+      setAcoes([]);
       setLoading(false);
       return;
     }
@@ -75,6 +100,7 @@ export function FunilDetailPage() {
     Promise.all([
       supabase.from(cfg.table).select("*").order("data_semana", { ascending: false }).limit(2),
       supabase.from(cfg.table).select("*").order("data_semana", { ascending: false }).limit(8),
+      loadAcoes(),
     ]).then(([{ data: d2 }, { data: d8 }]) => {
       setRows(d2 ?? []);
       const list = d8 ?? [];
@@ -82,24 +108,41 @@ export function FunilDetailPage() {
       setChartRows(list);
       setLoading(false);
     });
-  }, [cfg, slug]);
-
-  useEffect(() => {
-    localStorage.setItem(`acoes-${slug}`, JSON.stringify(acoes));
-  }, [acoes, slug]);
+  }, [cfg, slug, loadAcoes]);
 
   const ev0 = rows[0] && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(rows[0]) : null;
   const abaixo = (ev0?.stages ?? []).filter(s => s.ratioPct != null && s.ratioPct < 70);
   const nocaminho = (ev0?.stages ?? []).filter(s => s.ratioPct != null && s.ratioPct >= 100);
 
-  const addAcao = () => {
+  const addAcao = async () => {
     const txt = novaAcao.trim();
-    if (!txt) return;
-    setAcoes(prev => [...prev, { id: Date.now(), texto: txt }]);
+    if (!txt || !supabase) return;
+    const { error } = await supabase.from("acoes").insert([
+      {
+        funil_slug: slug,
+        texto: txt,
+        prazo: novoPrazo || null,
+        responsavel: novoResponsavel || null,
+      },
+    ]);
+    if (error) return;
     setNovaAcao("");
+    setNovoPrazo("");
+    setNovoResponsavel("");
+    loadAcoes();
   };
 
-  const removeAcao = (id) => setAcoes(prev => prev.filter(a => a.id !== id));
+  const completeAcao = async (id) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("acoes").update({ concluido: true }).eq("id", id);
+    if (!error) loadAcoes();
+  };
+
+  const updateAcao = async (id, patch) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("acoes").update(patch).eq("id", id);
+    if (!error) loadAcoes();
+  };
 
   const chartValueKey = slug === "pago-meta" ? "valor_investido" : "vendas";
   const chartData = chartRows.map(row => ({
@@ -181,16 +224,48 @@ export function FunilDetailPage() {
 
             <div style={{ background: C.white, borderRadius: 8, padding: 24, borderLeft: `4px solid ${C.primary}`, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
               <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>Plano de Ação</h2>
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <input value={novaAcao} onChange={e => setNovaAcao(e.target.value)} onKeyDown={e => e.key === "Enter" && addAcao()} placeholder="Descreva uma ação..." style={{ flex: 1, padding: "10px 12px", border: "1px solid #ddd", borderRadius: 6, fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 160px 170px auto", gap: 8, marginBottom: 16 }}>
+                <input value={novaAcao} onChange={e => setNovaAcao(e.target.value)} onKeyDown={e => e.key === "Enter" && addAcao()} placeholder="Descreva uma ação..." style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 6, fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+                <input
+                  type="date"
+                  value={novoPrazo}
+                  onChange={e => setNovoPrazo(e.target.value)}
+                  style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "10px 12px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                />
+                <select
+                  value={novoResponsavel}
+                  onChange={e => setNovoResponsavel(e.target.value)}
+                  style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "10px 12px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                >
+                  <option value="">Responsável</option>
+                  <option value="Diogo">Diogo</option>
+                  <option value="Turí">Turí</option>
+                  <option value="Pedro">Pedro</option>
+                </select>
                 <button onClick={addAcao} style={{ background: C.primary, color: C.white, border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 14 }}>Adicionar</button>
               </div>
               {acoes.length === 0 ? <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p> : (
                 <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                   {acoes.map(a => (
-                    <li key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: C.bg, borderRadius: 6, marginBottom: 8 }}>
-                      <input type="checkbox" onChange={() => removeAcao(a.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }} />
+                    <li key={a.id} style={{ display: "grid", gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px", alignItems: "center", gap: 10, padding: "10px 12px", background: C.bg, borderRadius: 6, marginBottom: 8 }}>
+                      <input type="checkbox" onChange={() => completeAcao(a.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }} />
                       <span style={{ fontSize: 14, color: C.dark }}>{a.texto}</span>
+                      <input
+                        type="date"
+                        value={a.prazo ?? ""}
+                        onChange={e => updateAcao(a.id, { prazo: e.target.value || null })}
+                        style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                      />
+                      <select
+                        value={a.responsavel ?? ""}
+                        onChange={e => updateAcao(a.id, { responsavel: e.target.value || null })}
+                        style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                      >
+                        <option value="">Responsável</option>
+                        <option value="Diogo">Diogo</option>
+                        <option value="Turí">Turí</option>
+                        <option value="Pedro">Pedro</option>
+                      </select>
                     </li>
                   ))}
                 </ul>

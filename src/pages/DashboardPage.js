@@ -239,29 +239,29 @@ export function DashboardPage() {
   const [pendingActions, setPendingActions] = useState([]);
   const [vencendoResponsavel, setVencendoResponsavel] = useState("Todos");
 
-  const loadPendingActions = useCallback(() => {
-    const items = [];
-    Object.entries(FUNNEL_FORMS).forEach(([slug, cfg]) => {
-      const key = `acoes-${slug}`;
-      try {
-        const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
-        if (!Array.isArray(parsed)) return;
-        parsed.forEach((item) => {
-          if (!item || typeof item !== "object") return;
-          if (!item.id || !item.texto) return;
-          items.push({
-            id: item.id,
-            texto: item.texto,
-            prazo: item.prazo ?? "",
-            responsavel: item.responsavel ?? "",
-            slug,
-            funnelTitle: cfg.title,
-          });
-        });
-      } catch {
-        /* ignore local parse errors */
-      }
-    });
+  const loadPendingActions = useCallback(async () => {
+    if (!supabase) {
+      setPendingActions([]);
+      return;
+    }
+    const { data, error } = await supabase.from("acoes").select("*").eq("concluido", false);
+    if (error) {
+      setPendingActions([]);
+      return;
+    }
+    const items = (data ?? [])
+      .filter((item) => item?.id && item?.texto)
+      .map((item) => {
+        const slug = item.funil_slug ?? "";
+        return {
+          id: item.id,
+          texto: item.texto,
+          prazo: item.prazo ?? "",
+          responsavel: item.responsavel ?? "",
+          slug,
+          funnelTitle: FUNNEL_FORMS[slug]?.title ?? slug,
+        };
+      });
     setPendingActions(items);
   }, []);
 
@@ -321,39 +321,18 @@ export function DashboardPage() {
 
   useEffect(() => {
     loadPendingActions();
-    const onStorage = () => loadPendingActions();
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("focus", onStorage);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("focus", onStorage);
-    };
   }, [loadPendingActions]);
 
-  const updatePendingAction = (slug, id, patch) => {
-    const key = `acoes-${slug}`;
-    try {
-      const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
-      if (!Array.isArray(parsed)) return;
-      const updated = parsed.map((item) => (item?.id === id ? { ...item, ...patch } : item));
-      localStorage.setItem(key, JSON.stringify(updated));
-      loadPendingActions();
-    } catch {
-      /* ignore local parse errors */
-    }
+  const updatePendingAction = async (id, patch) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("acoes").update(patch).eq("id", id);
+    if (!error) loadPendingActions();
   };
 
-  const completePendingAction = (slug, id) => {
-    const key = `acoes-${slug}`;
-    try {
-      const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
-      if (!Array.isArray(parsed)) return;
-      const updated = parsed.filter((item) => item?.id !== id);
-      localStorage.setItem(key, JSON.stringify(updated));
-      loadPendingActions();
-    } catch {
-      /* ignore local parse errors */
-    }
+  const completePendingAction = async (id) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("acoes").update({ concluido: true }).eq("id", id);
+    if (!error) loadPendingActions();
   };
 
   const headerStyle = {
@@ -652,7 +631,7 @@ export function DashboardPage() {
                 >
                   <input
                     type="checkbox"
-                    onChange={() => completePendingAction(item.slug, item.id)}
+                    onChange={() => completePendingAction(item.id)}
                     style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
                     aria-label={`Concluir ação ${item.texto}`}
                   />
@@ -661,7 +640,7 @@ export function DashboardPage() {
                   <input
                     type="date"
                     value={item.prazo}
-                    onChange={(e) => updatePendingAction(item.slug, item.id, { prazo: e.target.value })}
+                    onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
                     style={{
                       border: "1px solid #d1d5db",
                       borderRadius: 6,
@@ -674,7 +653,7 @@ export function DashboardPage() {
                   />
                   <select
                     value={item.responsavel}
-                    onChange={(e) => updatePendingAction(item.slug, item.id, { responsavel: e.target.value })}
+                    onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
                     style={{
                       border: "1px solid #d1d5db",
                       borderRadius: 6,
