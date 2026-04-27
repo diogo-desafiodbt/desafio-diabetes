@@ -238,6 +238,12 @@ export function DashboardPage() {
   const [err, setErr] = useState(null);
   const [pendingActions, setPendingActions] = useState([]);
   const [vencendoResponsavel, setVencendoResponsavel] = useState("Todos");
+  const [novaTarefaOpen, setNovaTarefaOpen] = useState(false);
+  const [novaTarefaTexto, setNovaTarefaTexto] = useState("");
+  const [novaTarefaFunil, setNovaTarefaFunil] = useState("");
+  const [novaTarefaPrazo, setNovaTarefaPrazo] = useState("");
+  const [novaTarefaResponsavel, setNovaTarefaResponsavel] = useState("");
+  const [melhoriaNova, setMelhoriaNova] = useState({ texto: "", prazo: "", responsavel: "" });
 
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
@@ -269,6 +275,7 @@ export function DashboardPage() {
     const todayStart = startOfTodayLocal();
     const endWindow = addDaysLocal(todayStart, 7);
     const inWindow = pendingActions
+      .filter((item) => item.slug !== "sistema")
       .map((item) => {
         const prazoDate = parseDateOnlyYmd(item.prazo);
         if (!prazoDate) return null;
@@ -335,6 +342,53 @@ export function DashboardPage() {
     if (!error) loadPendingActions();
   };
 
+  const saveNovaTarefa = async () => {
+    const texto = novaTarefaTexto.trim();
+    if (!texto || !novaTarefaFunil || !supabase) return;
+    const { error } = await supabase.from("acoes").insert([
+      {
+        funil_slug: novaTarefaFunil,
+        texto,
+        prazo: novaTarefaPrazo || null,
+        responsavel: novaTarefaResponsavel || null,
+      },
+    ]);
+    if (error) return;
+    setNovaTarefaOpen(false);
+    setNovaTarefaTexto("");
+    setNovaTarefaFunil("");
+    setNovaTarefaPrazo("");
+    setNovaTarefaResponsavel("");
+    loadPendingActions();
+  };
+
+  const cancelNovaTarefa = () => {
+    setNovaTarefaOpen(false);
+    setNovaTarefaTexto("");
+    setNovaTarefaFunil("");
+    setNovaTarefaPrazo("");
+    setNovaTarefaResponsavel("");
+  };
+
+  const addMelhoriaSistema = async () => {
+    const texto = melhoriaNova.texto.trim();
+    if (!texto || !supabase) return;
+    const { error } = await supabase.from("acoes").insert([
+      {
+        funil_slug: "sistema",
+        texto,
+        prazo: melhoriaNova.prazo || null,
+        responsavel: melhoriaNova.responsavel || null,
+      },
+    ]);
+    if (error) return;
+    setMelhoriaNova({ texto: "", prazo: "", responsavel: "" });
+    loadPendingActions();
+  };
+
+  const mainPendingActions = pendingActions.filter((item) => item.slug !== "sistema");
+  const sistemaPendingActions = pendingActions.filter((item) => item.slug === "sistema");
+
   const headerStyle = {
     background: C.dark,
     padding: "16px 32px",
@@ -397,37 +451,217 @@ export function DashboardPage() {
       </header>
 
       <div style={{ maxWidth: 1200, margin: "32px auto", padding: "0 24px" }}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "flex-end",
-            justifyContent: "space-between",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 14, color: "#555555", maxWidth: 640, lineHeight: 1.5 }}>
-            Visão dos sete funis. Verde ≥ 100% da meta, amarelo 70–99%, vermelho abaixo de 70%. Índice geral =
-            média das etapas.
-          </p>
-          <button
-            type="button"
-            onClick={load}
+        <div style={{ marginBottom: 24 }}>
+          <div
             style={{
-              background: C.dark,
-              color: C.white,
-              border: "none",
-              padding: "10px 20px",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontFamily: "Oswald, sans-serif",
-              fontSize: 14,
-              fontWeight: 700,
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+              justifyContent: "space-between",
+              gap: 16,
             }}
           >
-            Atualizar
-          </button>
+            <p style={{ margin: 0, fontSize: 14, color: "#555555", maxWidth: 640, lineHeight: 1.5 }}>
+              Visão dos sete funis. Verde ≥ 100% da meta, amarelo 70–99%, vermelho abaixo de 70%. Índice geral =
+              média das etapas.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (novaTarefaOpen) cancelNovaTarefa();
+                  else setNovaTarefaOpen(true);
+                }}
+                style={{
+                  background: C.primary,
+                  color: C.white,
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: "Oswald, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                + Nova Tarefa
+              </button>
+              <button
+                type="button"
+                onClick={load}
+                style={{
+                  background: C.dark,
+                  color: C.white,
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: "Oswald, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                Atualizar
+              </button>
+            </div>
+          </div>
+          {novaTarefaOpen && (
+            <div
+              style={{
+                marginTop: 16,
+                background: C.white,
+                borderRadius: 8,
+                padding: 20,
+                borderLeft: `4px solid ${C.primary}`,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(200px, 1fr) minmax(200px, 1fr) 160px 170px",
+                  gap: 12,
+                  alignItems: "end",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                    Descrição
+                  </label>
+                  <input
+                    type="text"
+                    value={novaTarefaTexto}
+                    onChange={(e) => setNovaTarefaTexto(e.target.value)}
+                    placeholder="Descrição da tarefa"
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      padding: "10px 12px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      fontSize: 14,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                    Funil
+                  </label>
+                  <select
+                    value={novaTarefaFunil}
+                    onChange={(e) => setNovaTarefaFunil(e.target.value)}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  >
+                    <option value="" disabled>
+                      Selecione o funil
+                    </option>
+                    {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => (
+                      <option key={slug} value={slug}>
+                        {cfg.title}
+                      </option>
+                    ))}
+                    <option value="outros">Outros</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                    Prazo
+                  </label>
+                  <input
+                    type="date"
+                    value={novaTarefaPrazo}
+                    onChange={(e) => setNovaTarefaPrazo(e.target.value)}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                    Responsável
+                  </label>
+                  <select
+                    value={novaTarefaResponsavel}
+                    onChange={(e) => setNovaTarefaResponsavel(e.target.value)}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  >
+                    <option value="">—</option>
+                    <option value="Diogo">Diogo</option>
+                    <option value="Turí">Turí</option>
+                    <option value="Pedro">Pedro</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={saveNovaTarefa}
+                  style={{
+                    background: C.primary,
+                    color: C.white,
+                    border: "none",
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontFamily: "Oswald, sans-serif",
+                    fontSize: 14,
+                    fontWeight: 700,
+                  }}
+                >
+                  Salvar
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelNovaTarefa}
+                  style={{
+                    background: C.white,
+                    color: C.dark,
+                    border: "1px solid #ddd",
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontFamily: "Oswald, sans-serif",
+                    fontSize: 14,
+                    fontWeight: 700,
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {err && (
@@ -612,11 +846,11 @@ export function DashboardPage() {
           >
             Ações Pendentes
           </h2>
-          {pendingActions.length === 0 ? (
+          {mainPendingActions.length === 0 ? (
             <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p>
           ) : (
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
-              {pendingActions.map((item) => (
+              {mainPendingActions.map((item) => (
                 <li
                   key={`${item.slug}-${item.id}`}
                   style={{
@@ -676,6 +910,186 @@ export function DashboardPage() {
         </section>
 
         <FormLinksSection />
+
+        <section
+          style={{
+            background: C.white,
+            borderRadius: 8,
+            padding: 24,
+            marginTop: 40,
+            marginBottom: 24,
+            borderLeft: `4px solid ${C.primary}`,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "Oswald, sans-serif",
+              color: C.dark,
+              fontSize: 18,
+              marginBottom: 16,
+              fontWeight: 700,
+            }}
+          >
+            Melhorias do Sistema
+          </h2>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(200px, 1fr) 160px 170px auto",
+              gap: 10,
+              alignItems: "end",
+              marginBottom: 16,
+            }}
+          >
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                Descrição
+              </label>
+              <input
+                type="text"
+                value={melhoriaNova.texto}
+                onChange={(e) => setMelhoriaNova((s) => ({ ...s, texto: e.target.value }))}
+                onKeyDown={(e) => e.key === "Enter" && addMelhoriaSistema()}
+                placeholder="Descreva a melhoria..."
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "10px 12px",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  fontSize: 14,
+                  fontFamily: "Inter, sans-serif",
+                  color: C.dark,
+                  background: C.white,
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                Prazo
+              </label>
+              <input
+                type="date"
+                value={melhoriaNova.prazo}
+                onChange={(e) => setMelhoriaNova((s) => ({ ...s, prazo: e.target.value }))}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  fontFamily: "Inter, sans-serif",
+                  color: C.dark,
+                  background: C.white,
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                Responsável
+              </label>
+              <select
+                value={melhoriaNova.responsavel}
+                onChange={(e) => setMelhoriaNova((s) => ({ ...s, responsavel: e.target.value }))}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  fontFamily: "Inter, sans-serif",
+                  color: C.dark,
+                  background: C.white,
+                }}
+              >
+                <option value="">—</option>
+                <option value="Diogo">Diogo</option>
+                <option value="Turí">Turí</option>
+                <option value="Pedro">Pedro</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={addMelhoriaSistema}
+              style={{
+                background: C.primary,
+                color: C.white,
+                border: "none",
+                padding: "10px 20px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "Oswald, sans-serif",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              Adicionar
+            </button>
+          </div>
+          {sistemaPendingActions.length === 0 ? (
+            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma melhoria pendente.</p>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              {sistemaPendingActions.map((item) => (
+                <li
+                  key={`sistema-${item.id}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
+                    gap: 10,
+                    alignItems: "center",
+                    background: C.bg,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    onChange={() => completePendingAction(item.id)}
+                    style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                    aria-label={`Concluir melhoria ${item.texto}`}
+                  />
+                  <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                  <input
+                    type="date"
+                    value={item.prazo}
+                    onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "8px 10px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  />
+                  <select
+                    value={item.responsavel}
+                    onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "8px 10px",
+                      fontSize: 13,
+                      fontFamily: "Inter, sans-serif",
+                      color: C.dark,
+                      background: C.white,
+                    }}
+                  >
+                    <option value="">Responsável</option>
+                    <option value="Diogo">Diogo</option>
+                    <option value="Turí">Turí</option>
+                    <option value="Pedro">Pedro</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );

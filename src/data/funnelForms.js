@@ -14,7 +14,7 @@ export const FUNNEL_FORMS = {
   },
   "youtube-questionario": {
     table: "funil_organico_youtube_questionario",
-    title: "YouTube Orgânico — Questionário Metabólico",
+    title: "YouTube Orgânico — Aplicativo",
     nav: "YouTube · Questionário",
     fields: [
       { key: "views_totais", label: "Views totais", step: "1" },
