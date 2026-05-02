@@ -30,6 +30,15 @@
  *   updated_at timestamptz not null default now()
  * );
  *
+ * create table if not exists public.comentarios_acoes (
+ *   id uuid primary key default gen_random_uuid(),
+ *   acao_id uuid not null references public.acoes (id) on delete cascade,
+ *   autor text not null,
+ *   texto text not null,
+ *   created_at timestamptz not null default now()
+ * );
+ * create index if not exists comentarios_acoes_acao_id_idx on public.comentarios_acoes (acao_id);
+ *
  * ------------------------------------------------------------------
  */
 
@@ -93,6 +102,39 @@ function readDdUser() {
     return { nome: String(o.nome), email: o.email != null ? String(o.email) : "" };
   } catch {
     return null;
+  }
+}
+
+function readComentarioAutorNome() {
+  try {
+    const raw = sessionStorage.getItem("usuario");
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && typeof o === "object" && o.nome) {
+        const n = String(o.nome).trim();
+        if (n) return n;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return readDdUser()?.nome?.trim() || "—";
+}
+
+function formatComentarioDateTime(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
   }
 }
 
@@ -574,6 +616,13 @@ export function DashboardPage() {
   const [kpiFormSaving, setKpiFormSaving] = useState(false);
   const [kpiFormFeedback, setKpiFormFeedback] = useState(null);
 
+  const [commentsModal, setCommentsModal] = useState(null);
+  const [comentariosList, setComentariosList] = useState([]);
+  const [comentariosLoading, setComentariosLoading] = useState(false);
+  const [comentariosError, setComentariosError] = useState(null);
+  const [novoComentarioTexto, setNovoComentarioTexto] = useState("");
+  const [comentarioSubmitting, setComentarioSubmitting] = useState(false);
+
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
       setPendingActions([]);
@@ -599,6 +648,60 @@ export function DashboardPage() {
       });
     setPendingActions(items);
   }, []);
+
+  const loadComentarios = useCallback(async (acaoId) => {
+    if (!supabase || !acaoId) {
+      setComentariosList([]);
+      return;
+    }
+    setComentariosLoading(true);
+    setComentariosError(null);
+    const { data, error } = await supabase
+      .from("comentarios_acoes")
+      .select("id, autor, texto, created_at")
+      .eq("acao_id", acaoId)
+      .order("created_at", { ascending: true });
+    setComentariosLoading(false);
+    if (error) {
+      setComentariosError(error.message ?? "Erro ao carregar comentários.");
+      setComentariosList([]);
+      return;
+    }
+    setComentariosList(data ?? []);
+  }, []);
+
+  const openCommentsModal = (item) => {
+    if (!item?.id) return;
+    setCommentsModal({ id: item.id, titulo: item.texto ?? "Tarefa" });
+    setNovoComentarioTexto("");
+    setComentariosError(null);
+    setComentariosList([]);
+    loadComentarios(item.id);
+  };
+
+  const closeCommentsModal = () => {
+    setCommentsModal(null);
+    setComentariosList([]);
+    setNovoComentarioTexto("");
+    setComentariosError(null);
+  };
+
+  const submitComentario = async () => {
+    if (!supabase || !commentsModal?.id) return;
+    const texto = novoComentarioTexto.trim();
+    if (!texto) return;
+    setComentarioSubmitting(true);
+    setComentariosError(null);
+    const autor = readComentarioAutorNome();
+    const { error } = await supabase.from("comentarios_acoes").insert([{ acao_id: commentsModal.id, autor, texto }]);
+    setComentarioSubmitting(false);
+    if (error) {
+      setComentariosError(error.message ?? "Erro ao enviar comentário.");
+      return;
+    }
+    setNovoComentarioTexto("");
+    await loadComentarios(commentsModal.id);
+  };
 
   const vencendoEmBreveList = useMemo(() => {
     const todayStart = startOfTodayLocal();
@@ -1003,6 +1106,15 @@ export function DashboardPage() {
     ...inputFieldStyle,
     fontSize: 13,
     padding: "10px 12px",
+  };
+
+  const taskTextHoverHandlers = {
+    onMouseEnter: (e) => {
+      e.currentTarget.style.backgroundColor = "rgba(13, 27, 62, 0.07)";
+    },
+    onMouseLeave: (e) => {
+      e.currentTarget.style.backgroundColor = "transparent";
+    },
   };
 
   const renderNovaTarefaForm = (opts = {}) => {
@@ -2113,7 +2225,26 @@ export function DashboardPage() {
                       >
                         <ResponsavelAvatar nome={resp} />
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <span style={{ fontWeight: 600 }}>{item.texto}</span>
+                          <button
+                            type="button"
+                            {...taskTextHoverHandlers}
+                            onClick={() => openCommentsModal(item)}
+                            style={{
+                              margin: 0,
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              font: "inherit",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              color: C.dark,
+                              borderRadius: 6,
+                              textAlign: "left",
+                              display: "inline",
+                            }}
+                          >
+                            {item.texto}
+                          </button>
                           <span style={{ color: "#94a3b8" }}> · </span>
                           <span style={{ color: "#64748b" }}>{item.funnelTitle}</span>
                           <span style={{ color: "#94a3b8" }}> · </span>
@@ -2147,7 +2278,28 @@ export function DashboardPage() {
                               style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0, marginTop: 2 }}
                               aria-label={`Concluir ação ${item.texto}`}
                             />
-                            <span style={{ fontSize: 14, color: C.dark, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{item.texto}</span>
+                            <button
+                              type="button"
+                              {...taskTextHoverHandlers}
+                              onClick={() => openCommentsModal(item)}
+                              style={{
+                                margin: 0,
+                                padding: 0,
+                                border: "none",
+                                background: "transparent",
+                                fontFamily: "Inter, sans-serif",
+                                fontSize: 14,
+                                color: C.dark,
+                                flex: 1,
+                                minWidth: 0,
+                                wordBreak: "break-word",
+                                cursor: "pointer",
+                                borderRadius: 6,
+                                textAlign: "left",
+                              }}
+                            >
+                              {item.texto}
+                            </button>
                           </div>
                           <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
                           <input
@@ -2175,7 +2327,26 @@ export function DashboardPage() {
                             style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
                             aria-label={`Concluir ação ${item.texto}`}
                           />
-                          <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                          <button
+                            type="button"
+                            {...taskTextHoverHandlers}
+                            onClick={() => openCommentsModal(item)}
+                            style={{
+                              margin: 0,
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              fontFamily: "Inter, sans-serif",
+                              fontSize: 14,
+                              color: C.dark,
+                              cursor: "pointer",
+                              borderRadius: 6,
+                              textAlign: "left",
+                              minWidth: 0,
+                            }}
+                          >
+                            {item.texto}
+                          </button>
                           <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
                           <input
                             type="date"
@@ -2658,7 +2829,28 @@ export function DashboardPage() {
                               style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0, marginTop: 2 }}
                               aria-label={`Concluir melhoria ${item.texto}`}
                             />
-                            <span style={{ fontSize: 14, color: C.dark, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{item.texto}</span>
+                            <button
+                              type="button"
+                              {...taskTextHoverHandlers}
+                              onClick={() => openCommentsModal(item)}
+                              style={{
+                                margin: 0,
+                                padding: 0,
+                                border: "none",
+                                background: "transparent",
+                                fontFamily: "Inter, sans-serif",
+                                fontSize: 14,
+                                color: C.dark,
+                                flex: 1,
+                                minWidth: 0,
+                                wordBreak: "break-word",
+                                cursor: "pointer",
+                                borderRadius: 6,
+                                textAlign: "left",
+                              }}
+                            >
+                              {item.texto}
+                            </button>
                           </div>
                           <input
                             type="date"
@@ -2685,7 +2877,26 @@ export function DashboardPage() {
                             style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
                             aria-label={`Concluir melhoria ${item.texto}`}
                           />
-                          <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                          <button
+                            type="button"
+                            {...taskTextHoverHandlers}
+                            onClick={() => openCommentsModal(item)}
+                            style={{
+                              margin: 0,
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              fontFamily: "Inter, sans-serif",
+                              fontSize: 14,
+                              color: C.dark,
+                              cursor: "pointer",
+                              borderRadius: 6,
+                              textAlign: "left",
+                              minWidth: 0,
+                            }}
+                          >
+                            {item.texto}
+                          </button>
                           <input
                             type="date"
                             value={item.prazo}
@@ -2722,6 +2933,184 @@ export function DashboardPage() {
           </>
         )}
       </main>
+      {commentsModal && (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1100,
+            background: "rgba(13, 27, 62, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: isMobile ? 12 : 24,
+            boxSizing: "border-box",
+          }}
+          onClick={closeCommentsModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="comentarios-modal-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: isMobile ? "100%" : "min(520px, 92vw)",
+              maxWidth: "100%",
+              maxHeight: isMobile ? "calc(100vh - 24px)" : "min(85vh, 640px)",
+              background: C.bg,
+              borderRadius: 12,
+              boxShadow: "0 16px 48px rgba(13, 27, 62, 0.18)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: isMobile ? "14px 12px 12px 16px" : "16px 16px 12px 20px",
+                borderBottom: "0.5px solid #e8ecf0",
+                flexShrink: 0,
+                background: C.white,
+              }}
+            >
+              <h2
+                id="comentarios-modal-title"
+                style={{
+                  margin: 0,
+                  fontSize: isMobile ? 16 : 18,
+                  color: C.dark,
+                  fontWeight: 700,
+                  flex: 1,
+                  lineHeight: 1.35,
+                  minWidth: 0,
+                }}
+              >
+                {commentsModal.titulo}
+              </h2>
+              <button
+                type="button"
+                aria-label="Fechar"
+                onClick={closeCommentsModal}
+                style={{
+                  width: 44,
+                  height: 44,
+                  flexShrink: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "none",
+                  borderRadius: 8,
+                  background: "transparent",
+                  color: C.dark,
+                  fontSize: 28,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  padding: 0,
+                  margin: "-4px -4px 0 0",
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                padding: "14px 20px",
+                WebkitOverflowScrolling: "touch",
+              }}
+            >
+              {comentariosLoading && (
+                <p style={{ margin: 0, fontSize: 14, color: "#64748b" }}>Carregando comentários…</p>
+              )}
+              {comentariosError && (
+                <p style={{ margin: "0 0 12px", fontSize: 14, color: "#b91c1c" }}>{comentariosError}</p>
+              )}
+              {!comentariosLoading && !comentariosError && comentariosList.length === 0 && (
+                <p style={{ margin: 0, fontSize: 14, color: "#94a3b8" }}>Nenhum comentário ainda.</p>
+              )}
+              {comentariosList.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    marginBottom: 14,
+                    paddingBottom: 14,
+                    borderBottom: "0.5px solid #e8ecf0",
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.4 }}>
+                    <strong style={{ color: C.dark }}>{c.autor ?? "—"}</strong>
+                    <span style={{ color: "#94a3b8" }}> · </span>
+                    <span>{formatComentarioDateTime(c.created_at)}</span>
+                  </div>
+                  <p style={{ margin: "8px 0 0", fontSize: 14, color: C.dark, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                    {c.texto}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                flexShrink: 0,
+                padding: isMobile ? "14px 16px 16px" : "16px 20px",
+                borderTop: "0.5px solid #e8ecf0",
+                background: C.white,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  gap: 10,
+                  alignItems: isMobile ? "stretch" : "flex-end",
+                }}
+              >
+                <textarea
+                  value={novoComentarioTexto}
+                  onChange={(e) => setNovoComentarioTexto(e.target.value)}
+                  placeholder="Escreva um comentário…"
+                  rows={isMobile ? 3 : 2}
+                  style={{
+                    ...inputFieldStyle,
+                    flex: 1,
+                    resize: "vertical",
+                    minHeight: isMobile ? 72 : 56,
+                    maxWidth: "100%",
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={comentarioSubmitting || !novoComentarioTexto.trim()}
+                  onClick={submitComentario}
+                  style={{
+                    background: C.primary,
+                    color: C.white,
+                    border: "none",
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    cursor: comentarioSubmitting || !novoComentarioTexto.trim() ? "not-allowed" : "pointer",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    opacity: comentarioSubmitting || !novoComentarioTexto.trim() ? 0.55 : 1,
+                    flexShrink: 0,
+                    alignSelf: isMobile ? "stretch" : "auto",
+                  }}
+                >
+                  {comentarioSubmitting ? "Enviando…" : "Comentar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
