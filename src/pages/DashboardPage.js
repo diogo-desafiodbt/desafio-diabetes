@@ -1,40 +1,157 @@
+/*
+ * --- SQL Supabase (rodar manualmente no SQL Editor) ---
+ *
+ * create table public.metas (
+ *   id uuid primary key default gen_random_uuid(),
+ *   funil_slug text not null,
+ *   metrica text not null,
+ *   valor_meta numeric not null,
+ *   periodo text not null,
+ *   responsavel text,
+ *   created_at timestamptz not null default now()
+ * );
+ *
+ * create index if not exists metas_funil_slug_idx on public.metas (funil_slug);
+ *
+ * -- Opcional: RLS conforme sua política de segurança
+ * -- alter table public.metas enable row level security;
+ *
+ * ------------------------------------------------------------------
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FUNNEL_FORMS } from "../data/funnelForms";
+import { FUNNEL_FORMS, FUNNEL_SLUGS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { FUNNEL_EVALUATORS } from "../utils/semaphores";
 import { getFormAbsoluteUrl } from "../utils/formUrls";
 
 const C = {
-  bg: "#EBEBEB",
+  bg: "#F4F6FA",
   primary: "#FF0028",
   dark: "#0D1B3E",
   white: "#FFFFFF",
 };
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  } catch {
-    return String(iso);
+const cardEnterprise = {
+  background: "#fff",
+  borderRadius: 12,
+  border: "0.5px solid #e8ecf0",
+  padding: 18,
+};
+
+const GERAL_METRIC_OPTIONS = [
+  { key: "views", label: "Views" },
+  { key: "cliques", label: "Cliques" },
+  { key: "vendas", label: "Vendas" },
+  { key: "valor_investido", label: "Valor Investido" },
+  { key: "outros", label: "Outros" },
+];
+
+function metaMetricaDisplayLabel(funilSlug, storedKey) {
+  if (!storedKey) return "—";
+  if (funilSlug === "geral") {
+    const g = GERAL_METRIC_OPTIONS.find((x) => x.key === storedKey);
+    if (g) return g.label;
   }
+  const f = FUNNEL_FORMS[funilSlug]?.fields?.find((x) => x.key === storedKey);
+  if (f) return f.label;
+  return String(storedKey);
 }
 
-function formatWeekDate(isoDate) {
-  if (!isoDate) return "—";
-  try {
-    return new Date(isoDate + "T12:00:00").toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return String(isoDate);
-  }
+function getISOWeek(date) {
+  const tmp = new Date(date.getTime());
+  tmp.setHours(0, 0, 0, 0);
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+  const week1 = new Date(tmp.getFullYear(), 0, 4);
+  return (
+    1 +
+    Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+  );
+}
+
+function lightToBarColor(light) {
+  if (light === "green") return "#22c55e";
+  if (light === "yellow") return "#eab308";
+  if (light === "red") return "#ef4444";
+  return "#94a3b8";
+}
+
+function IconGrid() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" opacity="0.95" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" opacity="0.95" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" opacity="0.95" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" opacity="0.95" />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20 6L9 17l-5-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconRefresh() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 21v-5h5M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M21 3v5h-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ResponsavelAvatar({ nome }) {
+  const letter = (nome && nome.trim()[0]) ? nome.trim()[0].toUpperCase() : "?";
+  return (
+    <span
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: "50%",
+        background: "#e8ecf0",
+        color: C.dark,
+        fontSize: 11,
+        fontWeight: 700,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        fontFamily: "Inter, sans-serif",
+      }}
+    >
+      {letter}
+    </span>
+  );
 }
 
 function parseDateOnlyYmd(str) {
@@ -86,31 +203,44 @@ function vencendoPrazoColor(prazoDate, todayStart) {
   return "#555555";
 }
 
-function badgeStyle(light) {
-  const base = {
-    padding: "4px 12px",
-    borderRadius: 12,
-    fontSize: 12,
-    fontWeight: 500,
-    color: C.white,
-    display: "inline-block",
-    fontFamily: "Inter, sans-serif",
-  };
-  if (light === "green") return { ...base, backgroundColor: "#22c55e" };
-  if (light === "yellow") return { ...base, backgroundColor: "#eab308" };
-  if (light === "red") return { ...base, backgroundColor: "#ef4444" };
-  return { ...base, backgroundColor: "#94a3b8" };
+function funnelStatusBadge(light) {
+  const label =
+    light === "green" ? "No objetivo" : light === "yellow" ? "Atenção" : light === "red" ? "Abaixo" : "Sem dados";
+  const bg = lightToBarColor(light);
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        fontWeight: 500,
+        padding: "4px 10px",
+        borderRadius: 20,
+        background: bg,
+        color: "#fff",
+        fontFamily: "Inter, sans-serif",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
-function badgeLabel(light) {
-  if (light === "green") return "No objetivo";
-  if (light === "yellow") return "Atenção";
-  if (light === "red") return "Abaixo da meta";
-  return "Sem dados";
+function fmtCell(v) {
+  if (v == null) return "—";
+  return typeof v === "number" ? v.toLocaleString("pt-BR") : String(v);
 }
 
-function FormLinksSection() {
-  const [copiedSlug, setCopiedSlug] = useState(null);
+function StagePctSpot({ pct }) {
+  const cor = pct == null ? "#94a3b8" : pct >= 100 ? "#22c55e" : pct >= 70 ? "#eab308" : "#ef4444";
+  const label = pct == null ? "s/d" : `${pct.toFixed(1)}%`;
+  return (
+    <span style={{ background: cor, color: "#fff", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>{label}</span>
+  );
+}
+
+function FunnelSidebarEmbed({ slug, row, onBack }) {
+  const cfg = FUNNEL_FORMS[slug];
+  const [copied, setCopied] = useState(false);
   const timeoutRef = useRef(null);
 
   useEffect(() => {
@@ -119,13 +249,21 @@ function FormLinksSection() {
     };
   }, []);
 
-  const handleCopy = async (slug) => {
-    const url = getFormAbsoluteUrl(slug);
+  if (!cfg) return null;
+
+  const url = getFormAbsoluteUrl(slug);
+  const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
+  const stageMap = {};
+  (ev?.stages ?? []).forEach((s) => {
+    stageMap[s.label] = s.ratioPct;
+  });
+
+  const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setCopiedSlug(slug);
-      timeoutRef.current = setTimeout(() => setCopiedSlug(null), 2000);
+      setCopied(true);
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       try {
         const ta = document.createElement("textarea");
@@ -137,8 +275,8 @@ function FormLinksSection() {
         document.execCommand("copy");
         document.body.removeChild(ta);
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        setCopiedSlug(slug);
-        timeoutRef.current = setTimeout(() => setCopiedSlug(null), 2000);
+        setCopied(true);
+        timeoutRef.current = setTimeout(() => setCopied(false), 2000);
       } catch {
         /* ignore */
       }
@@ -146,88 +284,85 @@ function FormLinksSection() {
   };
 
   return (
-    <section style={{ marginTop: 40 }} aria-labelledby="links-preenchimento">
-      <h2
-        id="links-preenchimento"
+    <div>
+      <button
+        type="button"
+        onClick={onBack}
         style={{
-          fontFamily: "Oswald, sans-serif",
+          background: C.white,
           color: C.dark,
-          fontSize: 22,
-          marginBottom: 16,
-          fontWeight: 700,
+          border: "1px solid #e2e8f0",
+          padding: "8px 14px",
+          borderRadius: 8,
+          cursor: "pointer",
+          fontFamily: "Inter, sans-serif",
+          fontSize: 13,
+          fontWeight: 600,
+          marginBottom: 20,
         }}
       >
-        Links de Preenchimento
-      </h2>
-      <ul
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: 12,
-          listStyle: "none",
-          margin: 0,
-          padding: 0,
-        }}
-      >
-        {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
-          const url = getFormAbsoluteUrl(slug);
-          const copied = copiedSlug === slug;
-          return (
-            <li
-              key={slug}
-              style={{
-                background: C.white,
-                borderRadius: 8,
-                padding: 16,
-                border: `1px solid ${C.primary}`,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-              }}
-            >
-              <h4
-                style={{
-                  fontFamily: "Oswald, sans-serif",
-                  color: C.dark,
-                  marginBottom: 6,
-                  fontSize: 16,
-                  fontWeight: 700,
-                }}
-              >
-                {cfg.title}
-              </h4>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "#555555",
-                  marginBottom: 10,
-                  wordBreak: "break-all",
-                  fontFamily: "Inter, sans-serif",
-                }}
-              >
-                {url}
-              </p>
-              <button
-                type="button"
-                onClick={() => handleCopy(slug)}
-                style={{
-                  background: copied ? "#16a34a" : C.primary,
-                  color: C.white,
-                  border: "none",
-                  padding: "8px 16px",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  fontFamily: "Oswald, sans-serif",
-                  fontSize: 14,
-                  letterSpacing: 1,
-                  fontWeight: 700,
-                }}
-              >
-                {copied ? "Copiado!" : "Copiar Link"}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+        ← Voltar
+      </button>
+      <h1 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 700, color: C.dark, fontFamily: "Inter, sans-serif" }}>{cfg.title}</h1>
+
+      <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+        <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 16, marginBottom: 12, fontWeight: 700 }}>
+          Link de preenchimento
+        </h2>
+        <p style={{ fontSize: 13, color: "#64748b", marginBottom: 12, wordBreak: "break-all", fontFamily: "Inter, sans-serif" }}>{url}</p>
+        <button
+          type="button"
+          onClick={handleCopy}
+          style={{
+            background: copied ? "#16a34a" : C.primary,
+            color: C.white,
+            border: "none",
+            padding: "10px 18px",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          {copied ? "Copiado!" : "Copiar Link"}
+        </button>
+      </section>
+
+      <section style={{ ...cardEnterprise, border: "0.5px solid #e8ecf0" }}>
+        <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 16, marginBottom: 14, fontWeight: 700 }}>
+          Semana atual
+        </h2>
+        {!row ? (
+          <p style={{ color: "#94a3b8", fontSize: 14 }}>Sem dados</p>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {cfg.fields.map((f) => {
+              const pct = stageMap[f.label];
+              return (
+                <li
+                  key={f.key}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 0",
+                    borderBottom: "1px solid #f1f5f9",
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: "#64748b", fontFamily: "Inter, sans-serif" }}>{f.label}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>{fmtCell(row[f.key])}</span>
+                    {pct !== undefined && <StagePctSpot pct={pct} />}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -244,6 +379,14 @@ export function DashboardPage() {
   const [novaTarefaPrazo, setNovaTarefaPrazo] = useState("");
   const [novaTarefaResponsavel, setNovaTarefaResponsavel] = useState("");
   const [melhoriaNova, setMelhoriaNova] = useState({ texto: "", prazo: "", responsavel: "" });
+  const [sidebarTab, setSidebarTab] = useState("dashboard");
+  const [funnelDetailSlug, setFunnelDetailSlug] = useState(null);
+  const [metasList, setMetasList] = useState([]);
+  const [metaFunil, setMetaFunil] = useState("");
+  const [metaMetrica, setMetaMetrica] = useState("");
+  const [metaValor, setMetaValor] = useState("");
+  const [metaPeriodo, setMetaPeriodo] = useState("semanal");
+  const [metaResponsavel, setMetaResponsavel] = useState("");
 
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
@@ -330,6 +473,23 @@ export function DashboardPage() {
     loadPendingActions();
   }, [loadPendingActions]);
 
+  const loadMetas = useCallback(async () => {
+    if (!supabase) {
+      setMetasList([]);
+      return;
+    }
+    const { data, error } = await supabase.from("metas").select("*").order("created_at", { ascending: false });
+    if (error) {
+      setMetasList([]);
+      return;
+    }
+    setMetasList(data ?? []);
+  }, []);
+
+  useEffect(() => {
+    if (sidebarTab === "metas") loadMetas();
+  }, [sidebarTab, loadMetas]);
+
   const updatePendingAction = async (id, patch) => {
     if (!supabase) return;
     const { error } = await supabase.from("acoes").update(patch).eq("id", id);
@@ -388,246 +548,933 @@ export function DashboardPage() {
 
   const mainPendingActions = pendingActions.filter((item) => item.slug !== "sistema");
   const sistemaPendingActions = pendingActions.filter((item) => item.slug === "sistema");
+  const pendingTasksCount = pendingActions.length;
 
-  const headerStyle = {
+  const metasGrouped = useMemo(() => {
+    const buckets = {};
+    metasList.forEach((m) => {
+      const k = m.funil_slug ?? "geral";
+      if (!buckets[k]) buckets[k] = [];
+      buckets[k].push(m);
+    });
+    const order = [...FUNNEL_SLUGS, "geral"];
+    return order.filter((k) => buckets[k]?.length).map((k) => [k, buckets[k]]);
+  }, [metasList]);
+
+  const metaMetricaOptions = useMemo(() => {
+    if (!metaFunil) return [];
+    if (metaFunil === "geral") return GERAL_METRIC_OPTIONS;
+    return (FUNNEL_FORMS[metaFunil]?.fields ?? []).map((f) => ({ key: f.key, label: f.label }));
+  }, [metaFunil]);
+
+  const addMeta = async () => {
+    if (!supabase || !metaFunil || !metaMetrica || !metaResponsavel) return;
+    const num = Number(String(metaValor).replace(",", "."));
+    if (!Number.isFinite(num)) return;
+    const { error } = await supabase.from("metas").insert([
+      {
+        funil_slug: metaFunil,
+        metrica: metaMetrica,
+        valor_meta: num,
+        periodo: metaPeriodo,
+        responsavel: metaResponsavel,
+      },
+    ]);
+    if (error) return;
+    setMetaMetrica("");
+    setMetaValor("");
+    loadMetas();
+  };
+
+  const deleteMeta = async (id) => {
+    if (!supabase) return;
+    const { error } = await supabase.from("metas").delete().eq("id", id);
+    if (!error) loadMetas();
+  };
+
+  const goTab = (tab) => {
+    setFunnelDetailSlug(null);
+    setSidebarTab(tab);
+  };
+
+  const tabNavActive = (tab) => funnelDetailSlug == null && sidebarTab === tab;
+
+  const refWeekDate = useMemo(() => {
+    let best = null;
+    for (const row of Object.values(rows)) {
+      if (!row?.data_semana) continue;
+      const s = String(row.data_semana);
+      const iso = s.length === 10 ? `${s}T12:00:00` : s;
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) continue;
+      if (!best || d > best) best = d;
+    }
+    return best;
+  }, [rows]);
+
+  const weekIndicatorText = useMemo(() => {
+    if (!refWeekDate) return "Sem dados da semana";
+    return `Semana ${getISOWeek(refWeekDate)}, ${refWeekDate.getFullYear()}`;
+  }, [refWeekDate]);
+
+  const sidebarShell = {
+    width: 240,
+    flexShrink: 0,
+    minHeight: "100vh",
     background: C.dark,
-    padding: "16px 32px",
     display: "flex",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap",
+    flexDirection: "column",
+    padding: "20px 0",
+    boxSizing: "border-box",
   };
 
-  const titleStyle = {
-    fontFamily: "Oswald, sans-serif",
-    color: C.primary,
-    fontSize: 24,
-    fontWeight: 700,
-    letterSpacing: 2,
-    margin: 0,
+  const navSectionLabel = {
+    fontSize: 9,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.35)",
+    margin: "20px 16px 8px",
+    fontFamily: "Inter, sans-serif",
+    fontWeight: 600,
   };
 
-  const subtitleStyle = {
-    color: C.white,
+  const inputFieldStyle = {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "10px 12px",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
     fontSize: 14,
     fontFamily: "Inter, sans-serif",
+    color: C.dark,
+    background: C.white,
+  };
+
+  const selectFieldStyle = {
+    ...inputFieldStyle,
+    fontSize: 13,
+    padding: "10px 12px",
+  };
+
+  const renderNovaTarefaForm = (opts = {}) => {
+    const { showCancel } = opts;
+    return (
+      <div id="form-nova-tarefa-top" style={{ ...cardEnterprise, marginBottom: 24 }}>
+        <h3
+          style={{
+            fontFamily: "Inter, sans-serif",
+            color: C.dark,
+            fontSize: 16,
+            fontWeight: 700,
+            marginBottom: 16,
+          }}
+        >
+          Nova tarefa
+        </h3>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            gap: 12,
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+              Descrição
+            </label>
+            <input
+              type="text"
+              value={novaTarefaTexto}
+              onChange={(e) => setNovaTarefaTexto(e.target.value)}
+              placeholder="Descrição da tarefa"
+              style={inputFieldStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+              Funil
+            </label>
+            <select value={novaTarefaFunil} onChange={(e) => setNovaTarefaFunil(e.target.value)} style={selectFieldStyle}>
+              <option value="" disabled>
+                Selecione o funil
+              </option>
+              {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => (
+                <option key={slug} value={slug}>
+                  {cfg.title}
+                </option>
+              ))}
+              <option value="outros">Outros</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+              Prazo
+            </label>
+            <input type="date" value={novaTarefaPrazo} onChange={(e) => setNovaTarefaPrazo(e.target.value)} style={selectFieldStyle} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+              Responsável
+            </label>
+            <select
+              value={novaTarefaResponsavel}
+              onChange={(e) => setNovaTarefaResponsavel(e.target.value)}
+              style={selectFieldStyle}
+            >
+              <option value="">—</option>
+              <option value="Diogo">Diogo</option>
+              <option value="Turí">Turí</option>
+              <option value="Pedro">Pedro</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={saveNovaTarefa}
+            style={{
+              background: C.primary,
+              color: C.white,
+              border: "none",
+              padding: "10px 20px",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 14,
+              fontWeight: 700,
+            }}
+          >
+            Salvar
+          </button>
+          {showCancel && (
+            <button
+              type="button"
+              onClick={cancelNovaTarefa}
+              style={{
+                background: C.white,
+                color: C.dark,
+                border: "1px solid #e2e8f0",
+                padding: "10px 20px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   if (!isSupabaseConfigured()) {
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif" }}>
-        <header style={headerStyle}>
-          <h1 style={titleStyle}>DESAFIO DIABETES</h1>
-          <span style={subtitleStyle}>Dashboard CEO</span>
-        </header>
-        <div style={{ maxWidth: 1200, margin: "32px auto", padding: "0 24px" }}>
-          <div
-            style={{
-              background: C.white,
-              padding: 24,
-              borderRadius: 8,
-              border: `1px solid ${C.primary}`,
-            }}
-          >
-            <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 8 }}>
+      <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", background: C.bg }}>
+        <aside style={sidebarShell}>
+          <div style={{ padding: "0 16px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ width: 32, height: 32, background: C.primary, borderRadius: 8, flexShrink: 0 }} />
+              <div>
+                <div style={{ color: C.white, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
+                <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: "0.08em", marginTop: 4 }}>
+                  DASHBOARD CEO
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+        <main style={{ flex: 1, padding: "28px 32px", minWidth: 0 }}>
+          <div style={{ ...cardEnterprise, maxWidth: 720 }}>
+            <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 8, fontWeight: 700 }}>
               Configuração do Supabase
             </h2>
-            <p style={{ color: "#555555", fontSize: 14, lineHeight: 1.5 }}>
-              Defina <code style={{ background: C.bg, padding: "2px 6px" }}>REACT_APP_SUPABASE_URL</code> e{" "}
-              <code style={{ background: C.bg, padding: "2px 6px" }}>REACT_APP_SUPABASE_ANON_KEY</code> no
-              arquivo <code style={{ background: C.bg, padding: "2px 6px" }}>.env</code>.
+            <p style={{ color: "#64748b", fontSize: 14, lineHeight: 1.5 }}>
+              Defina <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>REACT_APP_SUPABASE_URL</code>{" "}
+              e{" "}
+              <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>REACT_APP_SUPABASE_ANON_KEY</code>{" "}
+              no arquivo <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>.env</code>.
             </p>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", color: C.dark }}>
-      <header style={headerStyle}>
-        <h1 style={titleStyle}>DESAFIO DIABETES</h1>
-        <span style={subtitleStyle}>Dashboard CEO</span>
-      </header>
-
-      <div style={{ maxWidth: 1200, margin: "32px auto", padding: "0 24px" }}>
-        <div style={{ marginBottom: 24 }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "flex-end",
-              justifyContent: "space-between",
-              gap: 16,
-            }}
-          >
-            <p style={{ margin: 0, fontSize: 14, color: "#555555", maxWidth: 640, lineHeight: 1.5 }}>
-              Visão dos sete funis. Verde ≥ 100% da meta, amarelo 70–99%, vermelho abaixo de 70%. Índice geral =
-              média das etapas.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (novaTarefaOpen) cancelNovaTarefa();
-                  else setNovaTarefaOpen(true);
-                }}
-                style={{
-                  background: C.primary,
-                  color: C.white,
-                  border: "none",
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  fontFamily: "Oswald, sans-serif",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                + Nova Tarefa
-              </button>
-              <button
-                type="button"
-                onClick={load}
-                style={{
-                  background: C.dark,
-                  color: C.white,
-                  border: "none",
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  fontFamily: "Oswald, sans-serif",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                Atualizar
-              </button>
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", color: C.dark, background: C.bg }}>
+      <style>{`
+        @keyframes dashPulseGreen {
+          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
+          50% { opacity: 0.75; box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); }
+        }
+      `}</style>
+      <aside style={sidebarShell}>
+        <div style={{ padding: "0 16px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ width: 32, height: 32, background: C.primary, borderRadius: 8, flexShrink: 0 }} />
+            <div>
+              <div style={{ color: C.white, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
+              <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: "0.08em", marginTop: 4 }}>
+                DASHBOARD CEO
+              </div>
             </div>
           </div>
-          {novaTarefaOpen && (
-            <div
+        </div>
+
+        <div style={navSectionLabel}>VISÃO GERAL</div>
+        <button
+          type="button"
+          onClick={() => goTab("dashboard")}
+          style={{
+            margin: "0 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            textAlign: "left",
+            background: tabNavActive("dashboard") ? "rgba(255,0,40,0.15)" : "transparent",
+            borderLeft: tabNavActive("dashboard") ? "2px solid #FF0028" : "2px solid transparent",
+            color: tabNavActive("dashboard") ? C.white : "rgba(255,255,255,0.5)",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ display: "flex", color: tabNavActive("dashboard") ? C.white : "rgba(255,255,255,0.45)" }}>
+            <IconGrid />
+          </span>
+          📊 Dashboard
+        </button>
+        <button
+          type="button"
+          onClick={() => goTab("tarefas")}
+          style={{
+            margin: "6px 12px 0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            padding: "10px 12px",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            textAlign: "left",
+            background: tabNavActive("tarefas") ? "rgba(255,0,40,0.15)" : "transparent",
+            borderLeft: tabNavActive("tarefas") ? "2px solid #FF0028" : "2px solid transparent",
+            color: tabNavActive("tarefas") ? C.white : "rgba(255,255,255,0.5)",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ display: "flex", color: tabNavActive("tarefas") ? C.white : "rgba(255,255,255,0.45)" }}>
+              <IconCheck />
+            </span>
+            ✅ Tarefas
+          </span>
+          {pendingTasksCount > 0 && (
+            <span
               style={{
-                marginTop: 16,
-                background: C.white,
-                borderRadius: 8,
-                padding: 20,
-                borderLeft: `4px solid ${C.primary}`,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                background: C.primary,
+                color: C.white,
+                fontSize: 10,
+                fontWeight: 700,
+                minWidth: 22,
+                height: 22,
+                borderRadius: 11,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0 6px",
               }}
             >
+              {pendingTasksCount > 99 ? "99+" : pendingTasksCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => goTab("metas")}
+          style={{
+            margin: "6px 12px 0",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            textAlign: "left",
+            width: "calc(100% - 24px)",
+            boxSizing: "border-box",
+            background: tabNavActive("metas") ? "rgba(255,0,40,0.15)" : "transparent",
+            borderLeft: tabNavActive("metas") ? "2px solid #FF0028" : "2px solid transparent",
+            color: tabNavActive("metas") ? C.white : "rgba(255,255,255,0.5)",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          🎯 Metas
+        </button>
+        <button
+          type="button"
+          onClick={() => goTab("melhorias")}
+          style={{
+            margin: "6px 12px 0",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            textAlign: "left",
+            width: "calc(100% - 24px)",
+            boxSizing: "border-box",
+            background: tabNavActive("melhorias") ? "rgba(255,0,40,0.15)" : "transparent",
+            borderLeft: tabNavActive("melhorias") ? "2px solid #FF0028" : "2px solid transparent",
+            color: tabNavActive("melhorias") ? C.white : "rgba(255,255,255,0.5)",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          🛠️ Melhorias
+        </button>
+
+        <div style={navSectionLabel}>FUNIS</div>
+        <nav style={{ flex: 1, overflowY: "auto", padding: "0 12px 16px" }}>
+          {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
+            const row = rows[slug];
+            const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
+            const light = ev?.light ?? "gray";
+            const dotColor = lightToBarColor(light);
+            const funnelSelected = funnelDetailSlug === slug;
+            return (
+              <button
+                key={slug}
+                type="button"
+                onClick={() => setFunnelDetailSlug(slug)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  padding: "8px 10px",
+                  marginBottom: 4,
+                  border: "none",
+                  borderRadius: 8,
+                  background: funnelSelected ? "rgba(255,255,255,0.06)" : "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: dotColor,
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.45)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  {cfg.title}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div style={{ padding: "16px 16px 0", marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #FF0028 0%, #991b1b 100%)",
+                color: C.white,
+                fontSize: 14,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              D
+            </span>
+            <div>
+              <div style={{ color: C.white, fontSize: 12, fontWeight: 600 }}>Diogo</div>
+              <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>Administrador</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main style={{ flex: 1, minWidth: 0, overflow: "auto", padding: "28px 32px 48px" }}>
+        {funnelDetailSlug && FUNNEL_FORMS[funnelDetailSlug] ? (
+          <FunnelSidebarEmbed
+            slug={funnelDetailSlug}
+            row={rows[funnelDetailSlug]}
+            onBack={() => setFunnelDetailSlug(null)}
+          />
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, minWidth: 0 }}>
+                <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.dark, fontFamily: "Inter, sans-serif" }}>
+                  {sidebarTab === "dashboard"
+                    ? "Visão geral"
+                    : sidebarTab === "tarefas"
+                      ? "Tarefas"
+                      : sidebarTab === "metas"
+                        ? "Metas"
+                        : "Melhorias"}
+                </h1>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: "#22c55e",
+                    flexShrink: 0,
+                    animation: "dashPulseGreen 2s ease-in-out infinite",
+                  }}
+                  aria-hidden
+                />
+                <span style={{ fontSize: 13, color: "#64748b", fontFamily: "Inter, sans-serif" }}>{weekIndicatorText}</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                {(sidebarTab === "dashboard" || sidebarTab === "metas" || sidebarTab === "melhorias") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      load();
+                      if (sidebarTab === "metas") loadMetas();
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      background: C.white,
+                      color: C.dark,
+                      border: "1px solid #e2e8f0",
+                      padding: "10px 18px",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <IconRefresh />
+                    Atualizar
+                  </button>
+                )}
+                {sidebarTab === "dashboard" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (novaTarefaOpen) cancelNovaTarefa();
+                      else setNovaTarefaOpen(true);
+                    }}
+                    style={{
+                      background: C.primary,
+                      color: C.white,
+                      border: "none",
+                      padding: "10px 18px",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    + Nova Tarefa
+                  </button>
+                )}
+                {sidebarTab === "tarefas" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      document.getElementById("form-nova-tarefa-top")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                    style={{
+                      background: C.primary,
+                      color: C.white,
+                      border: "none",
+                      padding: "10px 18px",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    + Nova Tarefa
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {sidebarTab === "dashboard" && novaTarefaOpen && renderNovaTarefaForm({ showCancel: true })}
+            {sidebarTab === "tarefas" && renderNovaTarefaForm({ showCancel: false })}
+
+        {err && (
+          <div
+            style={{
+              ...cardEnterprise,
+              marginBottom: 24,
+              borderColor: "#fecaca",
+              background: "#fef2f2",
+              fontSize: 14,
+              color: C.dark,
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        {sidebarTab === "dashboard" && (
+          <>
+            {loading ? (
+              <p style={{ color: "#64748b", fontFamily: "Inter, sans-serif" }}>Carregando…</p>
+            ) : (
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(200px, 1fr) minmax(200px, 1fr) 160px 170px",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                  gap: 16,
+                  marginBottom: 24,
+                }}
+              >
+                {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
+                  const row = rows[slug];
+                  const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
+                  const light = ev?.light ?? "gray";
+                  const avg = ev?.avg;
+                  const pct = avg != null && Number.isFinite(avg) ? Math.min(100, Math.max(0, avg)) : null;
+                  const barColor = lightToBarColor(light);
+                  const fillPct = pct != null ? `${pct}%` : "0%";
+                  return (
+                    <button
+                      key={slug}
+                      type="button"
+                      onClick={() => navigate(`/funil/${slug}`)}
+                      style={{
+                        ...cardEnterprise,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        fontFamily: "Inter, sans-serif",
+                        border: "0.5px solid #e8ecf0",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "#94a3b8",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                            fontWeight: 600,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {cfg.title}
+                        </span>
+                        {funnelStatusBadge(light)}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: C.dark, marginBottom: 12 }}>
+                        {pct != null ? `${pct.toFixed(1)}%` : "—"}
+                      </div>
+                      <div style={{ height: 3, background: "#f1f5f9", borderRadius: 2, overflow: "hidden", marginBottom: 10 }}>
+                        <div style={{ height: "100%", width: fillPct, background: barColor, borderRadius: 2, transition: "width 0.3s ease" }} />
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>
+                        {pct != null ? `${pct.toFixed(1)}% da meta semanal` : "Sem dados da meta semanal"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {sidebarTab === "tarefas" && (
+          <>
+            <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                Vencendo em Breve
+              </h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                {["Todos", "Diogo", "Turí", "Pedro"].map((label) => {
+                  const active = vencendoResponsavel === label;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setVencendoResponsavel(label)}
+                      style={{
+                        background: active ? "#FF0028" : "#FFFFFF",
+                        color: active ? "#FFFFFF" : C.dark,
+                        border: active ? "none" : "1px solid #e2e8f0",
+                        padding: "8px 16px",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {vencendoEmBreveList.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma tarefa vencendo nos próximos 7 dias.</p>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+                  {vencendoEmBreveList.map((item) => {
+                    const resp = (item.responsavel ?? "").trim() || "—";
+                    const softBg =
+                      item._prazoColor === "#ef4444"
+                        ? "#fff8f8"
+                        : item._prazoColor === "#eab308"
+                          ? "#fffbeb"
+                          : item._prazoColor === "#22c55e"
+                            ? "#f0fdf4"
+                            : "#f8fafc";
+                    return (
+                      <li
+                        key={`${item.slug}-${item.id}-vencendo`}
+                        style={{
+                          background: softBg,
+                          borderRadius: 10,
+                          border: "0.5px solid #e8ecf0",
+                          padding: "12px 14px",
+                          fontSize: 14,
+                          color: C.dark,
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 12,
+                          lineHeight: 1.45,
+                          fontFamily: "Inter, sans-serif",
+                        }}
+                      >
+                        <ResponsavelAvatar nome={resp} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <span style={{ fontWeight: 600 }}>{item.texto}</span>
+                          <span style={{ color: "#94a3b8" }}> · </span>
+                          <span style={{ color: "#64748b" }}>{item.funnelTitle}</span>
+                          <span style={{ color: "#94a3b8" }}> · </span>
+                          <span style={{ color: "#64748b" }}>{resp}</span>
+                          <span style={{ color: "#94a3b8" }}> · </span>
+                          <span style={{ color: item._prazoColor, fontWeight: 600 }}>{formatPrazoDdMmYyyy(item._prazoDate)}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                Ações Pendentes
+              </h2>
+              {mainPendingActions.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+                  {mainPendingActions.map((item) => (
+                    <li
+                      key={`${item.slug}-${item.id}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "24px minmax(180px, 1fr) minmax(200px, 1fr) 160px 170px",
+                        gap: 10,
+                        alignItems: "center",
+                        background: "#f8fafc",
+                        borderRadius: 10,
+                        border: "0.5px solid #e8ecf0",
+                        padding: "10px 12px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        onChange={() => completePendingAction(item.id)}
+                        style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                        aria-label={`Concluir ação ${item.texto}`}
+                      />
+                      <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                      <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
+                      <input
+                        type="date"
+                        value={item.prazo}
+                        onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          fontSize: 13,
+                          fontFamily: "Inter, sans-serif",
+                          color: C.dark,
+                          background: C.white,
+                        }}
+                      />
+                      <select
+                        value={item.responsavel}
+                        onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          fontSize: 13,
+                          fontFamily: "Inter, sans-serif",
+                          color: C.dark,
+                          background: C.white,
+                        }}
+                      >
+                        <option value="">Responsável</option>
+                        <option value="Diogo">Diogo</option>
+                        <option value="Turí">Turí</option>
+                        <option value="Pedro">Pedro</option>
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
+
+        {sidebarTab === "metas" && (
+          <>
+            <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                Nova meta
+              </h2>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
                   gap: 12,
                   alignItems: "end",
-                  flexWrap: "wrap",
                 }}
               >
                 <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
-                    Descrição
-                  </label>
-                  <input
-                    type="text"
-                    value={novaTarefaTexto}
-                    onChange={(e) => setNovaTarefaTexto(e.target.value)}
-                    placeholder="Descrição da tarefa"
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      padding: "10px 12px",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      fontSize: 14,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
                     Funil
                   </label>
                   <select
-                    value={novaTarefaFunil}
-                    onChange={(e) => setNovaTarefaFunil(e.target.value)}
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "10px 12px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
+                    value={metaFunil}
+                    onChange={(e) => {
+                      setMetaFunil(e.target.value);
+                      setMetaMetrica("");
                     }}
+                    style={selectFieldStyle}
                   >
                     <option value="" disabled>
-                      Selecione o funil
+                      Selecione
                     </option>
-                    {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => (
+                    {FUNNEL_SLUGS.map((slug) => (
                       <option key={slug} value={slug}>
-                        {cfg.title}
+                        {FUNNEL_FORMS[slug]?.title ?? slug}
                       </option>
                     ))}
-                    <option value="outros">Outros</option>
+                    <option value="geral">Geral</option>
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
-                    Prazo
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Métrica
+                  </label>
+                  <select
+                    value={metaMetrica}
+                    onChange={(e) => setMetaMetrica(e.target.value)}
+                    disabled={!metaFunil}
+                    style={{
+                      ...selectFieldStyle,
+                      opacity: metaFunil ? 1 : 0.6,
+                      cursor: metaFunil ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    <option value="" disabled>
+                      Selecione a métrica
+                    </option>
+                    {metaMetricaOptions.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Valor da meta
                   </label>
                   <input
-                    type="date"
-                    value={novaTarefaPrazo}
-                    onChange={(e) => setNovaTarefaPrazo(e.target.value)}
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "10px 12px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
+                    type="number"
+                    step="any"
+                    value={metaValor}
+                    onChange={(e) => setMetaValor(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Período
+                  </label>
+                  <select value={metaPeriodo} onChange={(e) => setMetaPeriodo(e.target.value)} style={selectFieldStyle}>
+                    <option value="semanal">Semanal</option>
+                    <option value="mensal">Mensal</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
                     Responsável
                   </label>
-                  <select
-                    value={novaTarefaResponsavel}
-                    onChange={(e) => setNovaTarefaResponsavel(e.target.value)}
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "10px 12px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  >
-                    <option value="">—</option>
+                  <select value={metaResponsavel} onChange={(e) => setMetaResponsavel(e.target.value)} style={selectFieldStyle}>
+                    <option value="" disabled>
+                      Selecione
+                    </option>
                     <option value="Diogo">Diogo</option>
                     <option value="Turí">Turí</option>
                     <option value="Pedro">Pedro</option>
                   </select>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                 <button
                   type="button"
-                  onClick={saveNovaTarefa}
+                  onClick={addMeta}
                   style={{
                     background: C.primary,
                     color: C.white,
@@ -635,462 +1482,237 @@ export function DashboardPage() {
                     padding: "10px 20px",
                     borderRadius: 8,
                     cursor: "pointer",
-                    fontFamily: "Oswald, sans-serif",
+                    fontFamily: "Inter, sans-serif",
                     fontSize: 14,
                     fontWeight: 700,
                   }}
                 >
-                  Salvar
+                  Cadastrar meta
                 </button>
+              </div>
+            </section>
+
+            <section style={{ ...cardEnterprise, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                Metas cadastradas
+              </h2>
+              {metasGrouped.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma meta cadastrada.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {metasGrouped.map(([slugKey, lista]) => (
+                    <div key={slugKey}>
+                      <h3
+                        style={{
+                          fontFamily: "Inter, sans-serif",
+                          fontSize: 14,
+                          fontWeight: 700,
+                          color: "#64748b",
+                          marginBottom: 10,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {slugKey === "geral" ? "Geral" : FUNNEL_FORMS[slugKey]?.title ?? slugKey}
+                      </h3>
+                      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+                        {lista.map((m) => (
+                          <li
+                            key={m.id}
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              background: "#f8fafc",
+                              borderRadius: 10,
+                              border: "0.5px solid #e8ecf0",
+                              padding: "12px 14px",
+                              fontFamily: "Inter, sans-serif",
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 200 }}>
+                              <span style={{ fontWeight: 600, color: C.dark }}>
+                                {metaMetricaDisplayLabel(m.funil_slug, m.metrica)}
+                              </span>
+                              <span style={{ color: "#94a3b8", margin: "0 8px" }}>·</span>
+                              <span style={{ color: "#64748b" }}>
+                                Meta: <strong>{Number(m.valor_meta).toLocaleString("pt-BR")}</strong>
+                              </span>
+                              <span style={{ color: "#94a3b8", margin: "0 8px" }}>·</span>
+                              <span style={{ color: "#64748b" }}>{m.periodo === "mensal" ? "Mensal" : "Semanal"}</span>
+                              <span style={{ color: "#94a3b8", margin: "0 8px" }}>·</span>
+                              <span style={{ color: "#64748b" }}>{m.responsavel ?? "—"}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => deleteMeta(m.id)}
+                              style={{
+                                background: C.white,
+                                color: "#dc2626",
+                                border: "1px solid #fecaca",
+                                padding: "8px 14px",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                                fontFamily: "Inter, sans-serif",
+                                fontSize: 13,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Excluir
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {sidebarTab === "melhorias" && (
+          <>
+            <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                Melhorias do Sistema
+              </h2>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                  gap: 12,
+                  alignItems: "end",
+                  marginBottom: 16,
+                }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Descrição
+                  </label>
+                  <input
+                    type="text"
+                    value={melhoriaNova.texto}
+                    onChange={(e) => setMelhoriaNova((s) => ({ ...s, texto: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && addMelhoriaSistema()}
+                    placeholder="Descreva a melhoria..."
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Prazo
+                  </label>
+                  <input
+                    type="date"
+                    value={melhoriaNova.prazo}
+                    onChange={(e) => setMelhoriaNova((s) => ({ ...s, prazo: e.target.value }))}
+                    style={selectFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Responsável
+                  </label>
+                  <select
+                    value={melhoriaNova.responsavel}
+                    onChange={(e) => setMelhoriaNova((s) => ({ ...s, responsavel: e.target.value }))}
+                    style={selectFieldStyle}
+                  >
+                    <option value="">—</option>
+                    <option value="Diogo">Diogo</option>
+                    <option value="Turí">Turí</option>
+                    <option value="Pedro">Pedro</option>
+                  </select>
+                </div>
                 <button
                   type="button"
-                  onClick={cancelNovaTarefa}
+                  onClick={addMelhoriaSistema}
                   style={{
-                    background: C.white,
-                    color: C.dark,
-                    border: "1px solid #ddd",
+                    background: C.primary,
+                    color: C.white,
+                    border: "none",
                     padding: "10px 20px",
                     borderRadius: 8,
                     cursor: "pointer",
-                    fontFamily: "Oswald, sans-serif",
+                    fontFamily: "Inter, sans-serif",
                     fontSize: 14,
                     fontWeight: 700,
                   }}
                 >
-                  Cancelar
+                  Adicionar
                 </button>
               </div>
-            </div>
-          )}
-        </div>
-
-        {err && (
-          <div
-            style={{
-              marginBottom: 24,
-              padding: "12px 16px",
-              background: "#fef2f2",
-              border: `1px solid ${C.primary}`,
-              borderRadius: 8,
-              color: C.dark,
-              fontSize: 14,
-            }}
-          >
-            {err}
-          </div>
+              {sistemaPendingActions.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma melhoria pendente.</p>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+                  {sistemaPendingActions.map((item) => (
+                    <li
+                      key={`sistema-${item.id}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
+                        gap: 10,
+                        alignItems: "center",
+                        background: "#f8fafc",
+                        borderRadius: 10,
+                        border: "0.5px solid #e8ecf0",
+                        padding: "10px 12px",
+                        fontFamily: "Inter, sans-serif",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        onChange={() => completePendingAction(item.id)}
+                        style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                        aria-label={`Concluir melhoria ${item.texto}`}
+                      />
+                      <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                      <input
+                        type="date"
+                        value={item.prazo}
+                        onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          fontSize: 13,
+                          fontFamily: "Inter, sans-serif",
+                          color: C.dark,
+                          background: C.white,
+                        }}
+                      />
+                      <select
+                        value={item.responsavel}
+                        onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          fontSize: 13,
+                          fontFamily: "Inter, sans-serif",
+                          color: C.dark,
+                          background: C.white,
+                        }}
+                      >
+                        <option value="">Responsável</option>
+                        <option value="Diogo">Diogo</option>
+                        <option value="Turí">Turí</option>
+                        <option value="Pedro">Pedro</option>
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
         )}
-
-        {loading ? (
-          <p style={{ color: "#555555" }}>Carregando…</p>
-        ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gap: 16,
-              margin: "24px 0",
-            }}
-          >
-            {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
-              const row = rows[slug];
-              const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
-              const light = ev?.light ?? "gray";
-              return (
-                <button
-                  key={slug}
-                  type="button"
-                  onClick={() => navigate(`/funil/${slug}`)}
-                  style={{
-                    position: "relative",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    background: C.white,
-                    borderRadius: 8,
-                    padding: 20,
-                    border: "none",
-                    borderLeft: `4px solid ${C.primary}`,
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  <span style={{ position: "absolute", top: 16, right: 16, ...badgeStyle(light) }}>
-                    {badgeLabel(light)}
-                  </span>
-                  <h3
-                    style={{
-                      fontFamily: "Oswald, sans-serif",
-                      fontSize: 16,
-                      color: C.dark,
-                      marginBottom: 8,
-                      paddingRight: 100,
-                      fontWeight: 700,
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    {cfg.title}
-                  </h3>
-                  <p style={{ margin: "8px 0 0", fontSize: 14, color: "#555555" }}>
-                    Semana:{" "}
-                    <strong style={{ color: C.dark, fontWeight: 600 }}>
-                      {row ? formatWeekDate(row.data_semana) : "—"}
-                    </strong>
-                  </p>
-                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#555555" }}>
-                    Última atualização:{" "}
-                    <strong style={{ color: C.dark, fontWeight: 600 }}>
-                      {row ? formatDate(row.created_at) : "Sem lançamentos"}
-                    </strong>
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+          </>
         )}
-
-        <section
-          style={{
-            background: C.white,
-            borderRadius: 8,
-            padding: 24,
-            marginBottom: 24,
-            borderLeft: `4px solid ${C.primary}`,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: "Oswald, sans-serif",
-              color: C.dark,
-              fontSize: 18,
-              marginBottom: 16,
-              fontWeight: 700,
-            }}
-          >
-            Vencendo em Breve
-          </h2>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {["Todos", "Diogo", "Turí", "Pedro"].map((label) => {
-              const active = vencendoResponsavel === label;
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setVencendoResponsavel(label)}
-                  style={{
-                    background: active ? "#FF0028" : "#FFFFFF",
-                    color: active ? "#FFFFFF" : C.dark,
-                    border: active ? "none" : "1px solid #ddd",
-                    padding: "8px 16px",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    fontFamily: "Inter, sans-serif",
-                    fontSize: 13,
-                    fontWeight: 600,
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {vencendoEmBreveList.length === 0 ? (
-            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma tarefa vencendo nos próximos 7 dias.</p>
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
-              {vencendoEmBreveList.map((item) => {
-                const resp = (item.responsavel ?? "").trim() || "—";
-                return (
-                  <li
-                    key={`${item.slug}-${item.id}-vencendo`}
-                    style={{
-                      background: C.bg,
-                      borderRadius: 8,
-                      padding: "12px 14px",
-                      fontSize: 14,
-                      color: C.dark,
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    <span style={{ fontWeight: 600 }}>{item.texto}</span>
-                    <span style={{ color: "#94a3b8" }}> · </span>
-                    <span style={{ color: "#555555" }}>{item.funnelTitle}</span>
-                    <span style={{ color: "#94a3b8" }}> · </span>
-                    <span style={{ color: "#555555" }}>{resp}</span>
-                    <span style={{ color: "#94a3b8" }}> · </span>
-                    <span style={{ color: item._prazoColor, fontWeight: 600 }}>{formatPrazoDdMmYyyy(item._prazoDate)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section
-          style={{
-            background: C.white,
-            borderRadius: 8,
-            padding: 24,
-            marginBottom: 24,
-            borderLeft: `4px solid ${C.primary}`,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: "Oswald, sans-serif",
-              color: C.dark,
-              fontSize: 18,
-              marginBottom: 16,
-              fontWeight: 700,
-            }}
-          >
-            Ações Pendentes
-          </h2>
-          {mainPendingActions.length === 0 ? (
-            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p>
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
-              {mainPendingActions.map((item) => (
-                <li
-                  key={`${item.slug}-${item.id}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "24px minmax(180px, 1fr) minmax(200px, 1fr) 160px 170px",
-                    gap: 10,
-                    alignItems: "center",
-                    background: C.bg,
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    onChange={() => completePendingAction(item.id)}
-                    style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
-                    aria-label={`Concluir ação ${item.texto}`}
-                  />
-                  <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
-                  <span style={{ fontSize: 13, color: "#555555" }}>{item.funnelTitle}</span>
-                  <input
-                    type="date"
-                    value={item.prazo}
-                    onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
-                    style={{
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "8px 10px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  />
-                  <select
-                    value={item.responsavel}
-                    onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
-                    style={{
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "8px 10px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  >
-                    <option value="">Responsável</option>
-                    <option value="Diogo">Diogo</option>
-                    <option value="Turí">Turí</option>
-                    <option value="Pedro">Pedro</option>
-                  </select>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <FormLinksSection />
-
-        <section
-          style={{
-            background: C.white,
-            borderRadius: 8,
-            padding: 24,
-            marginTop: 40,
-            marginBottom: 24,
-            borderLeft: `4px solid ${C.primary}`,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: "Oswald, sans-serif",
-              color: C.dark,
-              fontSize: 18,
-              marginBottom: 16,
-              fontWeight: 700,
-            }}
-          >
-            Melhorias do Sistema
-          </h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(200px, 1fr) 160px 170px auto",
-              gap: 10,
-              alignItems: "end",
-              marginBottom: 16,
-            }}
-          >
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
-                Descrição
-              </label>
-              <input
-                type="text"
-                value={melhoriaNova.texto}
-                onChange={(e) => setMelhoriaNova((s) => ({ ...s, texto: e.target.value }))}
-                onKeyDown={(e) => e.key === "Enter" && addMelhoriaSistema()}
-                placeholder="Descreva a melhoria..."
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  padding: "10px 12px",
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  fontSize: 14,
-                  fontFamily: "Inter, sans-serif",
-                  color: C.dark,
-                  background: C.white,
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
-                Prazo
-              </label>
-              <input
-                type="date"
-                value={melhoriaNova.prazo}
-                onChange={(e) => setMelhoriaNova((s) => ({ ...s, prazo: e.target.value }))}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  fontFamily: "Inter, sans-serif",
-                  color: C.dark,
-                  background: C.white,
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#555555", marginBottom: 6, fontWeight: 600 }}>
-                Responsável
-              </label>
-              <select
-                value={melhoriaNova.responsavel}
-                onChange={(e) => setMelhoriaNova((s) => ({ ...s, responsavel: e.target.value }))}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  fontFamily: "Inter, sans-serif",
-                  color: C.dark,
-                  background: C.white,
-                }}
-              >
-                <option value="">—</option>
-                <option value="Diogo">Diogo</option>
-                <option value="Turí">Turí</option>
-                <option value="Pedro">Pedro</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={addMelhoriaSistema}
-              style={{
-                background: C.primary,
-                color: C.white,
-                border: "none",
-                padding: "10px 20px",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "Oswald, sans-serif",
-                fontSize: 14,
-                fontWeight: 700,
-              }}
-            >
-              Adicionar
-            </button>
-          </div>
-          {sistemaPendingActions.length === 0 ? (
-            <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma melhoria pendente.</p>
-          ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
-              {sistemaPendingActions.map((item) => (
-                <li
-                  key={`sistema-${item.id}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
-                    gap: 10,
-                    alignItems: "center",
-                    background: C.bg,
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    onChange={() => completePendingAction(item.id)}
-                    style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
-                    aria-label={`Concluir melhoria ${item.texto}`}
-                  />
-                  <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
-                  <input
-                    type="date"
-                    value={item.prazo}
-                    onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
-                    style={{
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "8px 10px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  />
-                  <select
-                    value={item.responsavel}
-                    onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
-                    style={{
-                      border: "1px solid #d1d5db",
-                      borderRadius: 6,
-                      padding: "8px 10px",
-                      fontSize: 13,
-                      fontFamily: "Inter, sans-serif",
-                      color: C.dark,
-                      background: C.white,
-                    }}
-                  >
-                    <option value="">Responsável</option>
-                    <option value="Diogo">Diogo</option>
-                    <option value="Turí">Turí</option>
-                    <option value="Pedro">Pedro</option>
-                  </select>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+      </main>
     </div>
   );
 }
