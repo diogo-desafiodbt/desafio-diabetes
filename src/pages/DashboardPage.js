@@ -16,6 +16,20 @@
  * -- Opcional: RLS conforme sua política de segurança
  * -- alter table public.metas enable row level security;
  *
+ * create table if not exists public.kpis_mensais (
+ *   mes text primary key,
+ *   faturamento numeric not null default 0,
+ *   meta_faturamento numeric not null default 0,
+ *   downloads numeric not null default 0,
+ *   meta_downloads numeric not null default 0,
+ *   suplementos numeric not null default 0,
+ *   meta_suplementos numeric not null default 0,
+ *   livros numeric not null default 0,
+ *   meta_livros numeric not null default 0,
+ *   created_at timestamptz not null default now(),
+ *   updated_at timestamptz not null default now()
+ * );
+ *
  * ------------------------------------------------------------------
  */
 
@@ -23,7 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FUNNEL_FORMS, FUNNEL_SLUGS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
-import { FUNNEL_EVALUATORS } from "../utils/semaphores";
+import { evaluateOrganicoYoutube, overallFromStages, ratioPct } from "../utils/semaphores";
 import { getFormAbsoluteUrl } from "../utils/formUrls";
 
 const C = {
@@ -47,6 +61,18 @@ const GERAL_METRIC_OPTIONS = [
   { key: "valor_investido", label: "Valor Investido" },
   { key: "outros", label: "Outros" },
 ];
+
+function readDdUser() {
+  try {
+    const raw = sessionStorage.getItem("dd_user");
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== "object" || !o.nome) return null;
+    return { nome: String(o.nome), email: o.email != null ? String(o.email) : "" };
+  } catch {
+    return null;
+  }
+}
 
 function metaMetricaDisplayLabel(funilSlug, storedKey) {
   if (!storedKey) return "—";
@@ -75,6 +101,103 @@ function lightToBarColor(light) {
   if (light === "yellow") return "#eab308";
   if (light === "red") return "#ef4444";
   return "#94a3b8";
+}
+
+/** Alinha `FUNNEL_FORMS` (tabelas reais) com a lógica de semáforo (campos do formulário). */
+function evaluateInstagramOrganicoQuestionario(row) {
+  const views = Number(row?.views);
+  const cliques = Number(row?.cliques);
+  const vendas = Number(row?.vendas);
+  const metaCliques = views * 0.02;
+  const metaVendas = cliques * 0.025;
+  return overallFromStages([
+    { label: "Cliques (meta: 2% das views)", ratioPct: ratioPct(cliques, metaCliques) },
+    { label: "Vendas (meta: 2,5% dos cliques)", ratioPct: ratioPct(vendas, metaVendas) },
+  ]);
+}
+
+/** Funil pago Meta — questionário (valor_investido, vendas). */
+function evaluatePagoMetaQuestionario(row) {
+  const vendas = Number(row?.vendas);
+  const inv = Number(row?.valor_investido);
+  if (!Number.isFinite(vendas)) {
+    return overallFromStages([{ label: "Vendas", ratioPct: null }]);
+  }
+  if (!Number.isFinite(inv) || inv <= 0) {
+    return overallFromStages([{ label: "Vendas (meta referência 10)", ratioPct: ratioPct(vendas, 10) }]);
+  }
+  const receitaEst = vendas * 100;
+  const roas = receitaEst / inv;
+  return overallFromStages([{ label: "ROAS estimado (meta 2x)", ratioPct: ratioPct(roas, 2) }]);
+}
+
+/** @param {string} slug @param {Record<string, unknown> | null | undefined} row */
+export function evaluateFunnelRow(slug, row) {
+  if (!row) return null;
+  if (slug === "instagram-organico") return evaluateInstagramOrganicoQuestionario(row);
+  if (slug === "youtube-questionario" || slug === "youtube-livro" || slug === "youtube-suplemento") {
+    return evaluateOrganicoYoutube(row);
+  }
+  if (slug === "pago-meta") return evaluatePagoMetaQuestionario(row);
+  return null;
+}
+
+function currentMesYYYYMM() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function prevMesYYYYMM(mesYYYYMM) {
+  const [y, m] = mesYYYYMM.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function mesLabelChart(mesYYYYMM) {
+  const [y, mo] = String(mesYYYYMM).split("-").map(Number);
+  if (!y || !mo) return "—";
+  const d = new Date(y, mo - 1, 1);
+  const s = d.toLocaleDateString("pt-BR", { month: "short" });
+  return s.replace(/\./g, "").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function pctMeta(atual, meta) {
+  const a = Number(atual);
+  const m = Number(meta);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  if (!Number.isFinite(a)) return null;
+  return (a / m) * 100;
+}
+
+function kpiBarColor(pct) {
+  if (pct == null || !Number.isFinite(pct)) return "#94a3b8";
+  if (pct >= 100) return "#22c55e";
+  if (pct >= 70) return "#eab308";
+  return "#ef4444";
+}
+
+function variationBadgeParts(prevVal, currVal) {
+  const p = Number(prevVal);
+  const c = Number(currVal);
+  if (!Number.isFinite(c)) return { label: "Sem dados", bg: "#f1f5f9", color: "#64748b" };
+  if (!Number.isFinite(p) || p === 0) {
+    if (p === 0 && c !== 0) return { label: "Novo", bg: "#e0e7ff", color: "#3730a3" };
+    return { label: "Sem dados", bg: "#f1f5f9", color: "#64748b" };
+  }
+  const v = ((c - p) / Math.abs(p)) * 100;
+  const sign = v >= 0 ? "+" : "";
+  return {
+    label: `${sign}${v.toFixed(1)}%`,
+    bg: v >= 0 ? "#dcfce7" : "#fee2e2",
+    color: v >= 0 ? "#166534" : "#991b1b",
+  };
+}
+
+function formatMoneyBRL(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  return x.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
 
 function IconGrid() {
@@ -203,7 +326,7 @@ function vencendoPrazoColor(prazoDate, todayStart) {
   return "#555555";
 }
 
-function funnelStatusBadge(light) {
+function funnelStatusBadge(light, compact) {
   const label =
     light === "green" ? "No objetivo" : light === "yellow" ? "Atenção" : light === "red" ? "Abaixo" : "Sem dados";
   const bg = lightToBarColor(light);
@@ -211,8 +334,8 @@ function funnelStatusBadge(light) {
     <span
       style={{
         fontSize: 10,
-        fontWeight: 500,
-        padding: "4px 10px",
+        fontWeight: 600,
+        padding: compact ? "2px 8px" : "4px 10px",
         borderRadius: 20,
         background: bg,
         color: "#fff",
@@ -252,7 +375,7 @@ function FunnelSidebarEmbed({ slug, row, onBack }) {
   if (!cfg) return null;
 
   const url = getFormAbsoluteUrl(slug);
-  const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
+  const ev = evaluateFunnelRow(slug, row);
   const stageMap = {};
   (ev?.stages ?? []).forEach((s) => {
     stageMap[s.label] = s.ratioPct;
@@ -368,6 +491,10 @@ function FunnelSidebarEmbed({ slug, row, onBack }) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const ddUser = readDdUser();
+  const userNome = ddUser?.nome ?? "—";
+  const userEmail = ddUser?.email ?? "";
+  const userInitial = userNome && userNome !== "—" ? userNome.trim()[0].toUpperCase() : "?";
   const [rows, setRows] = useState({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -387,6 +514,22 @@ export function DashboardPage() {
   const [metaValor, setMetaValor] = useState("");
   const [metaPeriodo, setMetaPeriodo] = useState("semanal");
   const [metaResponsavel, setMetaResponsavel] = useState("");
+
+  const [kpiMesAtualRow, setKpiMesAtualRow] = useState(null);
+  const [kpiMesAnteriorRow, setKpiMesAnteriorRow] = useState(null);
+  const [kpisChart6, setKpisChart6] = useState([]);
+
+  const [kpiFormMes, setKpiFormMes] = useState(() => currentMesYYYYMM());
+  const [kpiFormFat, setKpiFormFat] = useState("");
+  const [kpiFormMetaFat, setKpiFormMetaFat] = useState("");
+  const [kpiFormDownloads, setKpiFormDownloads] = useState("");
+  const [kpiFormMetaDown, setKpiFormMetaDown] = useState("");
+  const [kpiFormSup, setKpiFormSup] = useState("");
+  const [kpiFormMetaSup, setKpiFormMetaSup] = useState("");
+  const [kpiFormLivros, setKpiFormLivros] = useState("");
+  const [kpiFormMetaLivros, setKpiFormMetaLivros] = useState("");
+  const [kpiFormSaving, setKpiFormSaving] = useState(false);
+  const [kpiFormFeedback, setKpiFormFeedback] = useState(null);
 
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
@@ -445,7 +588,10 @@ export function DashboardPage() {
     setErr(null);
     setLoading(true);
     try {
-      const entries = await Promise.all(
+      const mesRef = currentMesYYYYMM();
+      const mesPrevStr = prevMesYYYYMM(mesRef);
+
+      const funnelEntriesPromise = Promise.all(
         Object.entries(FUNNEL_FORMS).map(async ([slug, cfg]) => {
           const { data, error } = await supabase
             .from(cfg.table)
@@ -457,13 +603,83 @@ export function DashboardPage() {
           return [slug, data];
         })
       );
+
+      const [entries, curKpi, prevKpi, sixKpi] = await Promise.all([
+        funnelEntriesPromise,
+        supabase.from("kpis_mensais").select("*").eq("mes", mesRef).maybeSingle(),
+        mesPrevStr
+          ? supabase.from("kpis_mensais").select("*").eq("mes", mesPrevStr).maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        supabase.from("kpis_mensais").select("*").order("mes", { ascending: false }).limit(6),
+      ]);
+
       setRows(Object.fromEntries(entries));
+
+      if (!curKpi.error) setKpiMesAtualRow(curKpi.data ?? null);
+      else setKpiMesAtualRow(null);
+      if (!prevKpi.error) setKpiMesAnteriorRow(prevKpi.data ?? null);
+      else setKpiMesAnteriorRow(null);
+      if (!sixKpi.error && Array.isArray(sixKpi.data)) {
+        setKpisChart6([...sixKpi.data].sort((a, b) => String(a.mes).localeCompare(String(b.mes))));
+      } else {
+        setKpisChart6([]);
+      }
     } catch (e) {
       setErr(e?.message ?? "Erro ao carregar dados.");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadKpiFormRow = useCallback(async () => {
+    if (!supabase || !kpiFormMes) return;
+    setKpiFormFeedback(null);
+    const { data, error } = await supabase.from("kpis_mensais").select("*").eq("mes", kpiFormMes).maybeSingle();
+    if (error || !data) {
+      setKpiFormFat("");
+      setKpiFormMetaFat("");
+      setKpiFormDownloads("");
+      setKpiFormMetaDown("");
+      setKpiFormSup("");
+      setKpiFormMetaSup("");
+      setKpiFormLivros("");
+      setKpiFormMetaLivros("");
+      return;
+    }
+    setKpiFormFat(String(data.faturamento ?? ""));
+    setKpiFormMetaFat(String(data.meta_faturamento ?? ""));
+    setKpiFormDownloads(String(data.downloads ?? ""));
+    setKpiFormMetaDown(String(data.meta_downloads ?? ""));
+    setKpiFormSup(String(data.suplementos ?? ""));
+    setKpiFormMetaSup(String(data.meta_suplementos ?? ""));
+    setKpiFormLivros(String(data.livros ?? ""));
+    setKpiFormMetaLivros(String(data.meta_livros ?? ""));
+  }, [kpiFormMes]);
+
+  const saveKpisMensais = async () => {
+    if (!supabase) return;
+    setKpiFormSaving(true);
+    setKpiFormFeedback(null);
+    const row = {
+      mes: kpiFormMes,
+      faturamento: Number(kpiFormFat) || 0,
+      meta_faturamento: Number(kpiFormMetaFat) || 0,
+      downloads: Number(kpiFormDownloads) || 0,
+      meta_downloads: Number(kpiFormMetaDown) || 0,
+      suplementos: Number(kpiFormSup) || 0,
+      meta_suplementos: Number(kpiFormMetaSup) || 0,
+      livros: Number(kpiFormLivros) || 0,
+      meta_livros: Number(kpiFormMetaLivros) || 0,
+    };
+    const { error } = await supabase.from("kpis_mensais").upsert(row, { onConflict: "mes" });
+    setKpiFormSaving(false);
+    if (error) {
+      setKpiFormFeedback({ ok: false, text: error.message ?? "Erro ao salvar KPIs." });
+      return;
+    }
+    setKpiFormFeedback({ ok: true, text: "KPIs do mês salvos." });
+    load();
+  };
 
   useEffect(() => {
     load();
@@ -489,6 +705,10 @@ export function DashboardPage() {
   useEffect(() => {
     if (sidebarTab === "metas") loadMetas();
   }, [sidebarTab, loadMetas]);
+
+  useEffect(() => {
+    if (sidebarTab === "metas") loadKpiFormRow();
+  }, [sidebarTab, kpiFormMes, loadKpiFormRow]);
 
   const updatePendingAction = async (id, patch) => {
     if (!supabase) return;
@@ -560,6 +780,34 @@ export function DashboardPage() {
     const order = [...FUNNEL_SLUGS, "geral"];
     return order.filter((k) => buckets[k]?.length).map((k) => [k, buckets[k]]);
   }, [metasList]);
+
+  const faturamentoChartMax = useMemo(() => {
+    const nums = kpisChart6.map((r) => Number(r.faturamento)).filter((n) => Number.isFinite(n));
+    const m = nums.length ? Math.max(...nums) : 0;
+    return m > 0 ? m : 1;
+  }, [kpisChart6]);
+
+  const kpiExecItems = useMemo(() => {
+    const r = kpiMesAtualRow;
+    const p = kpiMesAnteriorRow;
+    const item = (label, keyCurr, keyMeta, kind) => {
+      const pct = r ? pctMeta(r[keyCurr], r[keyMeta]) : null;
+      const display =
+        !r || r[keyCurr] == null
+          ? "—"
+          : kind === "money"
+            ? formatMoneyBRL(r[keyCurr])
+            : fmtCell(r[keyCurr]);
+      const varBadge = variationBadgeParts(p ? p[keyCurr] : null, r ? r[keyCurr] : null);
+      return { label, display, pct, varBadge };
+    };
+    return [
+      item("Faturamento do mês", "faturamento", "meta_faturamento", "money"),
+      item("Downloads do app", "downloads", "meta_downloads", "num"),
+      item("Suplementos vendidos", "suplementos", "meta_suplementos", "num"),
+      item("Livros vendidos", "livros", "meta_livros", "num"),
+    ];
+  }, [kpiMesAtualRow, kpiMesAnteriorRow]);
 
   const metaMetricaOptions = useMemo(() => {
     if (!metaFunil) return [];
@@ -777,7 +1025,11 @@ export function DashboardPage() {
         <aside style={sidebarShell}>
           <div style={{ padding: "0 16px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ width: 32, height: 32, background: C.primary, borderRadius: 8, flexShrink: 0 }} />
+              <img
+                src="/Logo Vertical (3).png"
+                alt="Desafio Diabetes"
+                style={{ width: 40, height: 40, objectFit: "contain" }}
+              />
               <div>
                 <div style={{ color: C.white, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
                 <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: "0.08em", marginTop: 4 }}>
@@ -785,6 +1037,65 @@ export function DashboardPage() {
                 </div>
               </div>
             </div>
+          </div>
+          <div style={{ padding: "16px 16px 20px", marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <span
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #FF0028 0%, #991b1b 100%)",
+                  color: C.white,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  fontFamily: "Inter, sans-serif",
+                }}
+              >
+                {userInitial}
+              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ color: C.white, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {userNome}
+                </div>
+                <div
+                  style={{
+                    color: "rgba(255,255,255,0.35)",
+                    fontSize: 11,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {userEmail || "Administrador"}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                sessionStorage.removeItem("dd_user");
+                navigate("/login", { replace: true });
+              }}
+              style={{
+                width: "100%",
+                background: "rgba(255,255,255,0.08)",
+                color: C.white,
+                border: "1px solid rgba(255,255,255,0.2)",
+                padding: "8px 12px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              Sair
+            </button>
           </div>
         </aside>
         <main style={{ flex: 1, padding: "28px 32px", minWidth: 0 }}>
@@ -815,7 +1126,11 @@ export function DashboardPage() {
       <aside style={sidebarShell}>
         <div style={{ padding: "0 16px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ width: 32, height: 32, background: C.primary, borderRadius: 8, flexShrink: 0 }} />
+            <img
+              src="/Logo Vertical (3).png"
+              alt="Desafio Diabetes"
+              style={{ width: 40, height: 40, objectFit: "contain" }}
+            />
             <div>
               <div style={{ color: C.white, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
               <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, letterSpacing: "0.08em", marginTop: 4 }}>
@@ -955,7 +1270,7 @@ export function DashboardPage() {
         <nav style={{ flex: 1, overflowY: "auto", padding: "0 12px 16px" }}>
           {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
             const row = rows[slug];
-            const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
+            const ev = evaluateFunnelRow(slug, row);
             const light = ev?.light ?? "gray";
             const dotColor = lightToBarColor(light);
             const funnelSelected = funnelDetailSlug === slug;
@@ -1004,8 +1319,8 @@ export function DashboardPage() {
           })}
         </nav>
 
-        <div style={{ padding: "16px 16px 0", marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ padding: "16px 16px 20px", marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
             <span
               style={{
                 width: 36,
@@ -1022,13 +1337,46 @@ export function DashboardPage() {
                 fontFamily: "Inter, sans-serif",
               }}
             >
-              D
+              {userInitial}
             </span>
-            <div>
-              <div style={{ color: C.white, fontSize: 12, fontWeight: 600 }}>Diogo</div>
-              <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>Administrador</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ color: C.white, fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {userNome}
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.35)",
+                  fontSize: 11,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {userEmail || "Administrador"}
+              </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.removeItem("dd_user");
+              navigate("/login", { replace: true });
+            }}
+            style={{
+              width: "100%",
+              background: "rgba(255,255,255,0.08)",
+              color: C.white,
+              border: "1px solid rgba(255,255,255,0.2)",
+              padding: "8px 12px",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Sair
+          </button>
         </div>
       </aside>
 
@@ -1161,66 +1509,215 @@ export function DashboardPage() {
             {loading ? (
               <p style={{ color: "#64748b", fontFamily: "Inter, sans-serif" }}>Carregando…</p>
             ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                  gap: 16,
-                  marginBottom: 24,
-                }}
-              >
-                {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
-                  const row = rows[slug];
-                  const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
-                  const light = ev?.light ?? "gray";
-                  const avg = ev?.avg;
-                  const pct = avg != null && Number.isFinite(avg) ? Math.min(100, Math.max(0, avg)) : null;
-                  const barColor = lightToBarColor(light);
-                  const fillPct = pct != null ? `${pct}%` : "0%";
-                  return (
-                    <button
-                      key={slug}
-                      type="button"
-                      onClick={() => navigate(`/funil/${slug}`)}
-                      style={{
-                        ...cardEnterprise,
-                        textAlign: "left",
-                        cursor: "pointer",
-                        fontFamily: "Inter, sans-serif",
-                        border: "0.5px solid #e8ecf0",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
-                        <span
+              <div style={{ display: "flex", flexDirection: "column", gap: 20, marginBottom: 24 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                    gap: 14,
+                  }}
+                >
+                  {kpiExecItems.map((kpi) => {
+                    const barW = kpi.pct != null && Number.isFinite(kpi.pct) ? `${Math.min(100, Math.max(0, kpi.pct))}%` : "0%";
+                    const barBg = kpiBarColor(kpi.pct);
+                    const pctLabel =
+                      kpi.pct != null && Number.isFinite(kpi.pct) ? `${kpi.pct.toFixed(1)}% da meta` : "Sem dados da meta";
+                    return (
+                      <div
+                        key={kpi.label}
+                        style={{
+                          ...cardEnterprise,
+                          border: "0.5px solid #e8ecf0",
+                          fontFamily: "Inter, sans-serif",
+                          position: "relative",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "#94a3b8",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.08em",
+                              fontWeight: 700,
+                              lineHeight: 1.3,
+                            }}
+                          >
+                            {kpi.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 20,
+                              background: kpi.varBadge.bg,
+                              color: kpi.varBadge.color,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {kpi.varBadge.label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: C.dark, marginBottom: 12, letterSpacing: "-0.02em" }}>
+                          {kpi.display}
+                        </div>
+                        <div style={{ height: 6, background: "#f1f5f9", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                          <div
+                            style={{
+                              height: "100%",
+                              width: barW,
+                              background: barBg,
+                              borderRadius: 4,
+                              transition: "width 0.35s ease",
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{pctLabel}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <section
+                  style={{
+                    background: C.white,
+                    borderRadius: 12,
+                    border: "0.5px solid #e8ecf0",
+                    padding: 20,
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: C.dark }}>Faturamento mensal (últimos 6 meses)</h2>
+                  {kpisChart6.length === 0 ? (
+                    <p style={{ color: "#94a3b8", fontSize: 14, margin: 0 }}>Sem dados de faturamento.</p>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, minHeight: 160, paddingTop: 8 }}>
+                      {kpisChart6.map((row) => {
+                        const v = Number(row.faturamento);
+                        const hPct = Number.isFinite(v) && faturamentoChartMax > 0 ? (v / faturamentoChartMax) * 100 : 0;
+                        return (
+                          <div
+                            key={row.mes}
+                            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 0 }}
+                          >
+                            <div
+                              style={{
+                                width: "100%",
+                                maxWidth: 48,
+                                height: 120,
+                                display: "flex",
+                                alignItems: "flex-end",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <div
+                                title={`${formatMoneyBRL(v)}`}
+                                style={{
+                                  width: "72%",
+                                  height: `${Math.max(4, hPct)}%`,
+                                  background: C.primary,
+                                  borderRadius: "6px 6px 2px 2px",
+                                  minHeight: 4,
+                                  transition: "height 0.35s ease",
+                                }}
+                              />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>
+                              {mesLabelChart(row.mes)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                    gap: 14,
+                  }}
+                >
+                  {Object.entries(FUNNEL_FORMS).map(([slug, cfg]) => {
+                    const row = rows[slug];
+                    const ev = evaluateFunnelRow(slug, row);
+                    const light = ev?.light ?? "gray";
+                    const avg = ev?.avg;
+                    const pct = avg != null && Number.isFinite(avg) ? Math.min(100, Math.max(0, avg)) : null;
+                    const barColor = lightToBarColor(light);
+                    const fillPct = pct != null ? `${pct}%` : "0%";
+                    const fields = cfg.fields ?? [];
+                    const first = fields[0];
+                    const rest = fields.slice(1);
+                    const primaryText =
+                      row && first ? fmtCell(row[first.key]) : "—";
+                    const secondaryLine = rest
+                      .map((f) => `${f.label}: ${row ? fmtCell(row[f.key]) : "—"}`)
+                      .join(" · ");
+                    return (
+                      <button
+                        key={slug}
+                        type="button"
+                        onClick={() => navigate(`/funil/${slug}`)}
+                        style={{
+                          ...cardEnterprise,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontFamily: "Inter, sans-serif",
+                          border: "0.5px solid #e8ecf0",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "#94a3b8",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              fontWeight: 700,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            {cfg.title}
+                          </span>
+                          {funnelStatusBadge(light, true)}
+                        </div>
+                        {first && (
+                          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                            {first.label}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 18, fontWeight: 800, color: C.dark, marginBottom: 6, letterSpacing: "-0.02em" }}>
+                          {first ? primaryText : "—"}
+                        </div>
+                        <div
                           style={{
                             fontSize: 11,
                             color: "#94a3b8",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.06em",
-                            fontWeight: 600,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            flex: 1,
-                            minWidth: 0,
+                            fontWeight: 500,
+                            marginBottom: 10,
+                            lineHeight: 1.45,
+                            minHeight: 16,
                           }}
                         >
-                          {cfg.title}
-                        </span>
-                        {funnelStatusBadge(light)}
-                      </div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: C.dark, marginBottom: 12 }}>
-                        {pct != null ? `${pct.toFixed(1)}%` : "—"}
-                      </div>
-                      <div style={{ height: 3, background: "#f1f5f9", borderRadius: 2, overflow: "hidden", marginBottom: 10 }}>
-                        <div style={{ height: "100%", width: fillPct, background: barColor, borderRadius: 2, transition: "width 0.3s ease" }} />
-                      </div>
-                      <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>
-                        {pct != null ? `${pct.toFixed(1)}% da meta semanal` : "Sem dados da meta semanal"}
-                      </div>
-                    </button>
-                  );
-                })}
+                          {secondaryLine || "\u00a0"}
+                        </div>
+                        <div style={{ height: 2, background: "#f1f5f9", borderRadius: 1, overflow: "hidden", marginBottom: 8 }}>
+                          <div style={{ height: "100%", width: fillPct, background: barColor, borderRadius: 1, transition: "width 0.3s ease" }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
+                          {pct != null ? `${pct.toFixed(1)}% da meta semanal` : "Sem dados da meta semanal"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </>
@@ -1378,6 +1875,169 @@ export function DashboardPage() {
 
         {sidebarTab === "metas" && (
           <>
+            <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
+              <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
+                KPIs mensais
+              </h2>
+              <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16, fontFamily: "Inter, sans-serif", lineHeight: 1.5 }}>
+                Cadastre ou atualize realizados e metas do mês. Um único registro por <strong>mes</strong> (YYYY-MM).
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                  gap: 12,
+                  alignItems: "end",
+                  marginBottom: 14,
+                }}
+              >
+                <div style={{ gridColumn: "1 / -1", maxWidth: 220 }}>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>Mês</label>
+                  <input
+                    type="month"
+                    value={kpiFormMes}
+                    onChange={(e) => setKpiFormMes(e.target.value)}
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Faturamento realizado (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={kpiFormFat}
+                    onChange={(e) => setKpiFormFat(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Meta faturamento (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={kpiFormMetaFat}
+                    onChange={(e) => setKpiFormMetaFat(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Downloads realizados
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormDownloads}
+                    onChange={(e) => setKpiFormDownloads(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Meta downloads
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormMetaDown}
+                    onChange={(e) => setKpiFormMetaDown(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Suplementos vendidos
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormSup}
+                    onChange={(e) => setKpiFormSup(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Meta suplementos
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormMetaSup}
+                    onChange={(e) => setKpiFormMetaSup(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Livros vendidos
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormLivros}
+                    onChange={(e) => setKpiFormLivros(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                    Meta livros
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={kpiFormMetaLivros}
+                    onChange={(e) => setKpiFormMetaLivros(e.target.value)}
+                    placeholder="0"
+                    style={inputFieldStyle}
+                  />
+                </div>
+              </div>
+              {kpiFormFeedback && (
+                <p
+                  style={{
+                    fontSize: 13,
+                    margin: "0 0 12px",
+                    fontFamily: "Inter, sans-serif",
+                    color: kpiFormFeedback.ok ? "#166534" : "#b91c1c",
+                    fontWeight: 600,
+                  }}
+                >
+                  {kpiFormFeedback.text}
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={kpiFormSaving || !kpiFormMes || !supabase}
+                onClick={saveKpisMensais}
+                style={{
+                  background: kpiFormSaving || !kpiFormMes ? "#fca5a5" : C.primary,
+                  color: C.white,
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 8,
+                  cursor: kpiFormSaving || !kpiFormMes ? "not-allowed" : "pointer",
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                {kpiFormSaving ? "Salvando…" : "Salvar KPIs do Mês"}
+              </button>
+            </section>
+
             <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
               <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>
                 Nova meta
