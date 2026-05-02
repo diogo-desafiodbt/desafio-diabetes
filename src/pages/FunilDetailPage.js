@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useWindowSize } from "../hooks/useWindowSize";
 import { FUNNEL_FORMS } from "../data/funnelForms";
 import { supabase } from "../lib/supabase";
 import { FUNNEL_EVALUATORS } from "../utils/semaphores";
@@ -26,22 +27,45 @@ function Semaforo({ pct }) {
   return <span style={{ background: cor, color: "#fff", borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{label}</span>;
 }
 
-function CardSemana({ title, row, slug }) {
+function CardSemana({ title, row, slug, isMobile }) {
   const cfg = FUNNEL_FORMS[slug];
   const ev = row && FUNNEL_EVALUATORS[slug] ? FUNNEL_EVALUATORS[slug].evaluate(row) : null;
   const stageMap = {};
   (ev?.stages ?? []).forEach(s => { stageMap[s.label] = s.ratioPct; });
   return (
-    <div style={{ flex: 1, minWidth: 260, background: C.white, borderRadius: 8, padding: 20, borderLeft: `4px solid ${C.primary}`, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+    <div
+      style={{
+        flex: 1,
+        minWidth: isMobile ? 0 : 260,
+        width: isMobile ? "100%" : "auto",
+        boxSizing: "border-box",
+        background: C.white,
+        borderRadius: 8,
+        padding: isMobile ? 16 : 20,
+        borderLeft: `4px solid ${C.primary}`,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+      }}
+    >
       <h3 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 16, marginBottom: 12, fontWeight: 700 }}>{title}</h3>
       {!row ? <p style={{ color: "#94a3b8", fontSize: 14 }}>Sem dados</p> : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {cfg.fields.map(f => {
             const pct = stageMap[f.label];
             return (
-              <li key={f.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+              <li
+                key={f.key}
+                style={{
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  justifyContent: "space-between",
+                  alignItems: isMobile ? "flex-start" : "center",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #f0f0f0",
+                  gap: isMobile ? 6 : 0,
+                }}
+              >
                 <span style={{ fontSize: 13, color: "#555" }}>{f.label}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>{fmt(row[f.key])}</span>
                   {pct !== undefined && <Semaforo pct={pct} />}
                 </span>
@@ -57,6 +81,7 @@ function CardSemana({ title, row, slug }) {
 export function FunilDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const { isMobile } = useWindowSize(768);
   const cfg = FUNNEL_FORMS[slug];
   const [rows, setRows] = useState([]);
   const [chartRows, setChartRows] = useState([]);
@@ -150,32 +175,87 @@ export function FunilDetailPage() {
     [chartValueKey]: row[chartValueKey] == null ? 0 : Number(row[chartValueKey]),
   }));
 
-  if (!cfg) return <div style={{ padding: 32 }}>Funil não encontrado.</div>;
+  if (!cfg) return <div style={{ padding: isMobile ? 16 : 32, fontFamily: "Inter, sans-serif" }}>Funil não encontrado.</div>;
+
+  const chartH = isMobile ? 220 : 280;
+  const chartMargin = isMobile ? { top: 6, right: 4, left: -4, bottom: 4 } : { top: 8, right: 16, left: 0, bottom: 8 };
+  const tickFs = isMobile ? 10 : 12;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", color: C.dark }}>
-      <header style={{ background: C.dark, padding: "16px 32px", display: "flex", alignItems: "center", gap: 16 }}>
-        <button onClick={() => navigate("/dashboard")} style={{ background: "transparent", border: `1px solid ${C.white}`, color: C.white, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "Inter, sans-serif" }}>← Voltar</button>
-        <h1 style={{ fontFamily: "Oswald, sans-serif", color: C.primary, fontSize: 22, fontWeight: 700, margin: 0 }}>DESAFIO DIABETES</h1>
-        <span style={{ color: C.white, fontSize: 14 }}>{cfg.title}</span>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", color: C.dark, boxSizing: "border-box" }}>
+      <header
+        style={{
+          background: C.dark,
+          padding: isMobile ? "12px 14px" : "16px 32px",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: isMobile ? 10 : 16,
+          rowGap: 10,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate("/dashboard")}
+          style={{
+            background: "transparent",
+            border: `1px solid ${C.white}`,
+            color: C.white,
+            padding: "8px 14px",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontSize: 13,
+            fontFamily: "Inter, sans-serif",
+            minHeight: 40,
+          }}
+        >
+          ← Voltar
+        </button>
+        <h1
+          style={{
+            fontFamily: "Oswald, sans-serif",
+            color: C.primary,
+            fontSize: isMobile ? 16 : 22,
+            fontWeight: 700,
+            margin: 0,
+            flex: isMobile ? "1 1 100%" : "0 1 auto",
+            order: isMobile ? 3 : 0,
+          }}
+        >
+          DESAFIO DIABETES
+        </h1>
+        <span
+          style={{
+            color: C.white,
+            fontSize: isMobile ? 12 : 14,
+            flex: "1 1 200px",
+            minWidth: 0,
+            lineHeight: 1.35,
+            wordBreak: "break-word",
+            order: isMobile ? 2 : 0,
+          }}
+        >
+          {cfg.title}
+        </span>
       </header>
 
-      <div style={{ maxWidth: 1100, margin: "32px auto", padding: "0 24px" }}>
+      <div style={{ maxWidth: 1100, margin: isMobile ? "16px auto" : "32px auto", padding: isMobile ? "0 14px" : "0 24px", boxSizing: "border-box" }}>
         {loading ? <p>Carregando…</p> : (
           <>
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
-              <CardSemana title="Semana atual" row={rows[0]} slug={slug} />
-              <CardSemana title="Semana anterior" row={rows[1]} slug={slug} />
+            <div style={{ display: "flex", gap: 16, flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", marginBottom: isMobile ? 20 : 32 }}>
+              <CardSemana title="Semana atual" row={rows[0]} slug={slug} isMobile={isMobile} />
+              <CardSemana title="Semana anterior" row={rows[1]} slug={slug} isMobile={isMobile} />
             </div>
 
             <div
               style={{
                 background: C.white,
                 borderRadius: 8,
-                padding: 24,
+                padding: isMobile ? 16 : 24,
                 marginBottom: 24,
                 borderLeft: "4px solid #FF0028",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                boxSizing: "border-box",
               }}
             >
               <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>Evolução Semanal</h2>
@@ -184,11 +264,11 @@ export function FunilDetailPage() {
               ) : chartRows.length === 0 ? (
                 <p style={{ color: "#94a3b8", fontSize: 14 }}>Sem dados para o gráfico.</p>
               ) : (
-                <div style={{ width: "100%", height: 280 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                      <XAxis dataKey="semana" tick={{ fontSize: 12, fill: "#555" }} />
-                      <YAxis tick={{ fontSize: 12, fill: "#555" }} />
+                <div style={{ width: "100%", height: chartH, minHeight: chartH }}>
+                  <ResponsiveContainer width="100%" height="100%" minHeight={chartH}>
+                    <BarChart data={chartData} margin={chartMargin}>
+                      <XAxis dataKey="semana" tick={{ fontSize: tickFs, fill: "#555" }} angle={isMobile ? -32 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 52 : 30} />
+                      <YAxis tick={{ fontSize: tickFs, fill: "#555" }} width={isMobile ? 32 : 36} />
                       <Tooltip />
                       <Bar dataKey={chartValueKey} fill="#FF0028" radius={[4, 4, 0, 0]} />
                     </BarChart>
@@ -197,7 +277,17 @@ export function FunilDetailPage() {
               )}
             </div>
 
-            <div style={{ background: C.white, borderRadius: 8, padding: 24, marginBottom: 24, borderLeft: `4px solid ${C.primary}`, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div
+              style={{
+                background: C.white,
+                borderRadius: 8,
+                padding: isMobile ? 16 : 24,
+                marginBottom: 24,
+                borderLeft: `4px solid ${C.primary}`,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                boxSizing: "border-box",
+              }}
+            >
               <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 12, fontWeight: 700 }}>Análise</h2>
               {!rows[0] ? <p style={{ color: "#94a3b8" }}>Sem dados para analisar.</p> : (
                 <>
@@ -222,50 +312,190 @@ export function FunilDetailPage() {
               )}
             </div>
 
-            <div style={{ background: C.white, borderRadius: 8, padding: 24, borderLeft: `4px solid ${C.primary}`, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            <div
+              style={{
+                background: C.white,
+                borderRadius: 8,
+                padding: isMobile ? 16 : 24,
+                borderLeft: `4px solid ${C.primary}`,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                boxSizing: "border-box",
+              }}
+            >
               <h2 style={{ fontFamily: "Oswald, sans-serif", color: C.dark, fontSize: 18, marginBottom: 16, fontWeight: 700 }}>Plano de Ação</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) 160px 170px auto", gap: 8, marginBottom: 16 }}>
-                <input value={novaAcao} onChange={e => setNovaAcao(e.target.value)} onKeyDown={e => e.key === "Enter" && addAcao()} placeholder="Descreva uma ação..." style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 6, fontSize: 14, fontFamily: "Inter, sans-serif" }} />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile ? "1fr" : "minmax(220px, 1fr) 160px 170px auto",
+                  gap: 8,
+                  marginBottom: 16,
+                }}
+              >
+                <input
+                  value={novaAcao}
+                  onChange={e => setNovaAcao(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addAcao()}
+                  placeholder="Descreva uma ação..."
+                  style={{
+                    padding: "10px 12px",
+                    border: "1px solid #ddd",
+                    borderRadius: 6,
+                    fontSize: 14,
+                    fontFamily: "Inter, sans-serif",
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                />
                 <input
                   type="date"
                   value={novoPrazo}
                   onChange={e => setNovoPrazo(e.target.value)}
-                  style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "10px 12px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                  style={{
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontFamily: "Inter, sans-serif",
+                    color: C.dark,
+                    background: C.white,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
                 />
                 <select
                   value={novoResponsavel}
                   onChange={e => setNovoResponsavel(e.target.value)}
-                  style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "10px 12px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                  style={{
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontFamily: "Inter, sans-serif",
+                    color: C.dark,
+                    background: C.white,
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
                 >
                   <option value="">Responsável</option>
                   <option value="Diogo">Diogo</option>
                   <option value="Turí">Turí</option>
                   <option value="Pedro">Pedro</option>
                 </select>
-                <button onClick={addAcao} style={{ background: C.primary, color: C.white, border: "none", padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 14 }}>Adicionar</button>
+                <button
+                  type="button"
+                  onClick={addAcao}
+                  style={{
+                    background: C.primary,
+                    color: C.white,
+                    border: "none",
+                    padding: "12px 20px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontFamily: "Oswald, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    width: isMobile ? "100%" : "auto",
+                    minHeight: 44,
+                  }}
+                >
+                  Adicionar
+                </button>
               </div>
               {acoes.length === 0 ? <p style={{ color: "#94a3b8", fontSize: 14 }}>Nenhuma ação pendente.</p> : (
                 <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                   {acoes.map(a => (
-                    <li key={a.id} style={{ display: "grid", gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px", alignItems: "center", gap: 10, padding: "10px 12px", background: C.bg, borderRadius: 6, marginBottom: 8 }}>
-                      <input type="checkbox" onChange={() => completeAcao(a.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }} />
-                      <span style={{ fontSize: 14, color: C.dark }}>{a.texto}</span>
-                      <input
-                        type="date"
-                        value={a.prazo ?? ""}
-                        onChange={e => updateAcao(a.id, { prazo: e.target.value || null })}
-                        style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
-                      />
-                      <select
-                        value={a.responsavel ?? ""}
-                        onChange={e => updateAcao(a.id, { responsavel: e.target.value || null })}
-                        style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
-                      >
-                        <option value="">Responsável</option>
-                        <option value="Diogo">Diogo</option>
-                        <option value="Turí">Turí</option>
-                        <option value="Pedro">Pedro</option>
-                      </select>
+                    <li
+                      key={a.id}
+                      style={
+                        isMobile
+                          ? {
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 10,
+                              padding: "12px 12px",
+                              background: C.bg,
+                              borderRadius: 6,
+                              marginBottom: 8,
+                              alignItems: "stretch",
+                            }
+                          : {
+                              display: "grid",
+                              gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "10px 12px",
+                              background: C.bg,
+                              borderRadius: 6,
+                              marginBottom: 8,
+                            }
+                      }
+                    >
+                      {isMobile ? (
+                        <>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <input type="checkbox" onChange={() => completeAcao(a.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0, marginTop: 2 }} />
+                            <span style={{ fontSize: 14, color: C.dark, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{a.texto}</span>
+                          </div>
+                          <input
+                            type="date"
+                            value={a.prazo ?? ""}
+                            onChange={e => updateAcao(a.id, { prazo: e.target.value || null })}
+                            style={{
+                              border: "1px solid #d1d5db",
+                              borderRadius: 6,
+                              padding: "8px 10px",
+                              fontSize: 13,
+                              fontFamily: "Inter, sans-serif",
+                              color: C.dark,
+                              background: C.white,
+                              width: "100%",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                          <select
+                            value={a.responsavel ?? ""}
+                            onChange={e => updateAcao(a.id, { responsavel: e.target.value || null })}
+                            style={{
+                              border: "1px solid #d1d5db",
+                              borderRadius: 6,
+                              padding: "8px 10px",
+                              fontSize: 13,
+                              fontFamily: "Inter, sans-serif",
+                              color: C.dark,
+                              background: C.white,
+                              width: "100%",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      ) : (
+                        <>
+                          <input type="checkbox" onChange={() => completeAcao(a.id)} style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }} />
+                          <span style={{ fontSize: 14, color: C.dark }}>{a.texto}</span>
+                          <input
+                            type="date"
+                            value={a.prazo ?? ""}
+                            onChange={e => updateAcao(a.id, { prazo: e.target.value || null })}
+                            style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                          />
+                          <select
+                            value={a.responsavel ?? ""}
+                            onChange={e => updateAcao(a.id, { responsavel: e.target.value || null })}
+                            style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "Inter, sans-serif", color: C.dark, background: C.white }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>

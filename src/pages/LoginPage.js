@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useWindowSize } from "../hooks/useWindowSize";
 
 const BG = "#F4F6FA";
 const PRIMARY = "#FF0028";
@@ -13,6 +14,7 @@ const USERS = [
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { isMobile } = useWindowSize(768);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
@@ -45,8 +47,9 @@ export function LoginPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 24,
+        padding: isMobile ? 12 : 24,
         fontFamily: "Inter, sans-serif",
+        boxSizing: "border-box",
       }}
     >
       <div
@@ -55,19 +58,29 @@ export function LoginPage() {
           maxWidth: 400,
           background: "#fff",
           borderRadius: 12,
-          padding: 40,
+          padding: isMobile ? 20 : 40,
           boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
           border: "0.5px solid #e8ecf0",
+          boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 32 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: "center",
+            gap: isMobile ? 12 : 14,
+            marginBottom: isMobile ? 24 : 32,
+            textAlign: isMobile ? "center" : "left",
+          }}
+        >
           <img
             src="/Logo Vertical (3).png"
             alt="Desafio Diabetes"
-            style={{ width: 60, height: 60, objectFit: "contain" }}
+            style={{ width: isMobile ? 52 : 60, height: isMobile ? 52 : 60, objectFit: "contain", flexShrink: 0 }}
           />
-          <div>
-            <div style={{ color: DARK, fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: DARK, fontSize: isMobile ? 17 : 18, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
             <div style={{ color: "rgba(13,27,62,0.45)", fontSize: 10, letterSpacing: "0.1em", marginTop: 4, fontWeight: 600 }}>
               DASHBOARD CEO
             </div>
@@ -141,6 +154,8 @@ export function LoginPage() {
               fontWeight: 700,
               cursor: "pointer",
               fontFamily: "Inter, sans-serif",
+              minHeight: 48,
+              boxSizing: "border-box",
             }}
           >
             Entrar

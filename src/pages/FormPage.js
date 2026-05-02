@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useWindowSize } from "../hooks/useWindowSize";
 import { FUNNEL_FORMS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { mondayFromWeekValue } from "../utils/week";
@@ -18,23 +19,31 @@ function parseNumber(raw) {
   return { ok: true, value: n };
 }
 
-const headerStyle = {
-  background: C.dark,
-  padding: "16px 32px",
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-};
+function headerStyleFn(isMobile) {
+  return {
+    background: C.dark,
+    padding: isMobile ? "12px 14px" : "16px 32px",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    rowGap: 10,
+    boxSizing: "border-box",
+  };
+}
 
-const titleStyle = {
-  fontFamily: "Oswald, sans-serif",
-  color: C.primary,
-  fontSize: 24,
-  fontWeight: 700,
-  letterSpacing: 2,
-  margin: 0,
-};
+function titleStyleFn(isMobile) {
+  return {
+    fontFamily: "Oswald, sans-serif",
+    color: C.primary,
+    fontSize: isMobile ? 18 : 24,
+    fontWeight: 700,
+    letterSpacing: isMobile ? 1 : 2,
+    margin: 0,
+    lineHeight: 1.15,
+    wordBreak: "break-word",
+  };
+}
 
 const inputStyle = {
   width: "100%",
@@ -58,6 +67,7 @@ const labelStyle = {
 
 export function FormPage() {
   const { slug } = useParams();
+  const { isMobile } = useWindowSize(768);
   const cfg = slug ? FUNNEL_FORMS[slug] : null;
 
   const initialValues = useMemo(() => {
@@ -151,19 +161,24 @@ export function FormPage() {
     fontSize: 14,
     fontFamily: "Inter, sans-serif",
     textDecoration: "none",
-    marginLeft: "auto",
+    marginLeft: isMobile ? 0 : "auto",
+    padding: isMobile ? "8px 0" : 0,
+    display: "inline-block",
+    width: isMobile ? "100%" : "auto",
+    textAlign: isMobile ? "center" : "right",
+    boxSizing: "border-box",
   };
 
   if (!cfg) {
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif" }}>
-        <header style={headerStyle}>
-          <h1 style={titleStyle}>DESAFIO DIABETES</h1>
+      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}>
+        <header style={{ ...headerStyleFn(isMobile), flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
+          <h1 style={{ ...titleStyleFn(isMobile), width: "100%" }}>DESAFIO DIABETES</h1>
           <Link to="/dashboard" style={linkBackStyle}>
             ← Voltar ao dashboard
           </Link>
         </header>
-        <div style={{ maxWidth: 600, margin: "40px auto", padding: "0 24px", textAlign: "center" }}>
+        <div style={{ maxWidth: 600, margin: isMobile ? "24px auto" : "40px auto", padding: isMobile ? "0 14px" : "0 24px", textAlign: "center" }}>
           <p style={{ color: "#555555" }}>Funil não encontrado.</p>
           <Link
             to="/dashboard"
@@ -178,14 +193,14 @@ export function FormPage() {
 
   if (!isSupabaseConfigured() || !supabase) {
     return (
-      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif" }}>
-        <header style={headerStyle}>
-          <h1 style={titleStyle}>DESAFIO DIABETES</h1>
+      <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", boxSizing: "border-box" }}>
+        <header style={{ ...headerStyleFn(isMobile), flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
+          <h1 style={{ ...titleStyleFn(isMobile), width: "100%" }}>DESAFIO DIABETES</h1>
           <Link to="/dashboard" style={linkBackStyle}>
             ← Voltar ao dashboard
           </Link>
         </header>
-        <div style={{ maxWidth: 600, margin: "40px auto", padding: "0 24px" }}>
+        <div style={{ maxWidth: 600, margin: isMobile ? "24px auto" : "40px auto", padding: isMobile ? "0 14px" : "0 24px" }}>
           <div style={{ background: C.white, padding: 24, borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }}>
             <p style={{ color: "#555555", fontSize: 14, margin: 0 }}>
               Configure o Supabase no arquivo <code style={{ background: C.bg, padding: "2px 6px" }}>.env</code>.
@@ -197,22 +212,34 @@ export function FormPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", color: C.dark }}>
-      <header style={headerStyle}>
-        <h1 style={titleStyle}>DESAFIO DIABETES</h1>
-        <span style={{ color: C.white, fontSize: 14, fontFamily: "Inter, sans-serif" }}>{cfg.title}</span>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif", color: C.dark, boxSizing: "border-box" }}>
+      <header style={{ ...headerStyleFn(isMobile), flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
+        <h1 style={{ ...titleStyleFn(isMobile), flex: isMobile ? "none" : "0 0 auto" }}>DESAFIO DIABETES</h1>
+        <span
+          style={{
+            color: C.white,
+            fontSize: isMobile ? 13 : 14,
+            fontFamily: "Inter, sans-serif",
+            flex: "1 1 200px",
+            minWidth: 0,
+            lineHeight: 1.4,
+            wordBreak: "break-word",
+          }}
+        >
+          {cfg.title}
+        </span>
         <Link to="/dashboard" style={linkBackStyle}>
           ← Voltar
         </Link>
       </header>
 
-      <div style={{ maxWidth: 600, margin: "40px auto", padding: "0 24px" }}>
+      <div style={{ maxWidth: 600, margin: isMobile ? "20px auto 32px" : "40px auto", padding: isMobile ? "0 14px" : "0 24px", boxSizing: "border-box" }}>
         <form
           onSubmit={onSubmit}
           style={{
             background: C.white,
             borderRadius: 12,
-            padding: 32,
+            padding: isMobile ? 18 : 32,
             boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
             boxSizing: "border-box",
           }}
@@ -221,10 +248,12 @@ export function FormPage() {
             style={{
               fontFamily: "Oswald, sans-serif",
               color: C.dark,
-              fontSize: 24,
+              fontSize: isMobile ? 20 : 24,
               marginBottom: 24,
               marginTop: 0,
               fontWeight: 700,
+              lineHeight: 1.2,
+              wordBreak: "break-word",
             }}
           >
             {cfg.title}

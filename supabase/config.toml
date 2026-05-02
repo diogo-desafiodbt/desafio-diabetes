@@ -1,0 +1,12 @@
+# Configuração local Supabase CLI (ajuste project_id ao teu projeto).
+# https://supabase.com/docs/guides/cli/config
+
+project_id = "desafio-diabetes-v2"
+
+[functions.notify-task-assigned]
+# Webhook da base de dados envia POST sem JWT do utilizador.
+verify_jwt = false
+
+[functions.daily-task-digest]
+# Chamada agendada (pg_cron + pg_net) com secret em header.
+verify_jwt = false

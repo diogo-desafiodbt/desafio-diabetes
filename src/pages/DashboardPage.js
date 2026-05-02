@@ -35,6 +35,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useWindowSize } from "../hooks/useWindowSize";
 import { FUNNEL_FORMS, FUNNEL_SLUGS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { evaluateOrganicoYoutube, overallFromStages, ratioPct } from "../utils/semaphores";
@@ -52,6 +53,27 @@ const cardEnterprise = {
   borderRadius: 12,
   border: "0.5px solid #e8ecf0",
   padding: 18,
+};
+
+const sidebarShell = {
+  width: 240,
+  flexShrink: 0,
+  minHeight: "100vh",
+  background: C.dark,
+  display: "flex",
+  flexDirection: "column",
+  padding: "20px 0",
+  boxSizing: "border-box",
+};
+
+const navSectionLabel = {
+  fontSize: 9,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "rgba(255,255,255,0.35)",
+  margin: "20px 16px 8px",
+  fontFamily: "Inter, sans-serif",
+  fontWeight: 600,
 };
 
 const GERAL_METRIC_OPTIONS = [
@@ -225,6 +247,14 @@ function IconCheck() {
   );
 }
 
+function IconMenu() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconRefresh() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -361,7 +391,7 @@ function StagePctSpot({ pct }) {
   );
 }
 
-function FunnelSidebarEmbed({ slug, row, onBack }) {
+function FunnelSidebarEmbed({ slug, row, onBack, isMobile }) {
   const cfg = FUNNEL_FORMS[slug];
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef(null);
@@ -426,7 +456,19 @@ function FunnelSidebarEmbed({ slug, row, onBack }) {
       >
         ← Voltar
       </button>
-      <h1 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 700, color: C.dark, fontFamily: "Inter, sans-serif" }}>{cfg.title}</h1>
+      <h1
+        style={{
+          margin: "0 0 20px",
+          fontSize: isMobile ? 17 : 22,
+          fontWeight: 700,
+          color: C.dark,
+          fontFamily: "Inter, sans-serif",
+          lineHeight: 1.25,
+          wordBreak: "break-word",
+        }}
+      >
+        {cfg.title}
+      </h1>
 
       <section style={{ ...cardEnterprise, marginBottom: 24, border: "0.5px solid #e8ecf0" }}>
         <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 16, marginBottom: 12, fontWeight: 700 }}>
@@ -467,15 +509,16 @@ function FunnelSidebarEmbed({ slug, row, onBack }) {
                   key={f.key}
                   style={{
                     display: "flex",
+                    flexDirection: isMobile ? "column" : "row",
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: isMobile ? "flex-start" : "center",
                     padding: "10px 0",
                     borderBottom: "1px solid #f1f5f9",
-                    gap: 12,
+                    gap: isMobile ? 6 : 12,
                   }}
                 >
                   <span style={{ fontSize: 13, color: "#64748b", fontFamily: "Inter, sans-serif" }}>{f.label}</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>{fmtCell(row[f.key])}</span>
                     {pct !== undefined && <StagePctSpot pct={pct} />}
                   </span>
@@ -843,6 +886,7 @@ export function DashboardPage() {
   const goTab = (tab) => {
     setFunnelDetailSlug(null);
     setSidebarTab(tab);
+    setMobileNavOpen(false);
   };
 
   const tabNavActive = (tab) => funnelDetailSlug == null && sidebarTab === tab;
@@ -865,25 +909,82 @@ export function DashboardPage() {
     return `Semana ${getISOWeek(refWeekDate)}, ${refWeekDate.getFullYear()}`;
   }, [refWeekDate]);
 
-  const sidebarShell = {
-    width: 240,
-    flexShrink: 0,
-    minHeight: "100vh",
-    background: C.dark,
-    display: "flex",
-    flexDirection: "column",
-    padding: "20px 0",
-    boxSizing: "border-box",
-  };
+  const { isMobile } = useWindowSize(768);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const navSectionLabel = {
-    fontSize: 9,
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.35)",
-    margin: "20px 16px 8px",
+  useEffect(() => {
+    if (!isMobile) setMobileNavOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile || !mobileNavOpen) {
+      document.body.style.overflow = "";
+      return undefined;
+    }
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isMobile, mobileNavOpen]);
+
+  const asideStyle = useMemo(() => {
+    if (!isMobile) return sidebarShell;
+    return {
+      ...sidebarShell,
+      position: "fixed",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 260,
+      zIndex: 1002,
+      transform: mobileNavOpen ? "translateX(0)" : "translateX(-100%)",
+      transition: "transform 0.25s ease",
+      boxShadow: mobileNavOpen ? "8px 0 32px rgba(0,0,0,0.28)" : "none",
+      pointerEvents: mobileNavOpen ? "auto" : "none",
+    };
+  }, [isMobile, mobileNavOpen]);
+
+  const mainPadding = isMobile ? "56px 14px 28px" : "28px 32px 48px";
+  const gridMinKpi = isMobile ? "minmax(140px, 1fr)" : "minmax(200px, 1fr)";
+  const gridMinFunnel = isMobile ? "minmax(200px, 1fr)" : "minmax(260px, 1fr)";
+  const gridMinForm = isMobile ? "minmax(140px, 1fr)" : "minmax(200px, 1fr)";
+  const gridMinMeta = isMobile ? "minmax(140px, 1fr)" : "minmax(180px, 1fr)";
+  const pendingRowBase = {
+    background: "#f8fafc",
+    borderRadius: 10,
+    border: "0.5px solid #e8ecf0",
+    padding: isMobile ? "12px 12px" : "10px 12px",
     fontFamily: "Inter, sans-serif",
-    fontWeight: 600,
+  };
+  const pendingRowStyle = isMobile
+    ? { ...pendingRowBase, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10 }
+    : {
+        ...pendingRowBase,
+        display: "grid",
+        gridTemplateColumns: "24px minmax(180px, 1fr) minmax(200px, 1fr) 160px 170px",
+        gap: 10,
+        alignItems: "center",
+      };
+  const sistemaRowStyle = isMobile
+    ? { ...pendingRowBase, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10 }
+    : {
+        ...pendingRowBase,
+        display: "grid",
+        gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
+        gap: 10,
+        alignItems: "center",
+      };
+  const dateInputCompact = {
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: 13,
+    fontFamily: "Inter, sans-serif",
+    color: C.dark,
+    background: C.white,
+    width: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
   };
 
   const inputFieldStyle = {
@@ -922,7 +1023,7 @@ export function DashboardPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            gridTemplateColumns: `repeat(auto-fill, ${gridMinForm})`,
             gap: 12,
             alignItems: "end",
           }}
@@ -1021,8 +1122,78 @@ export function DashboardPage() {
 
   if (!isSupabaseConfigured()) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", background: C.bg }}>
-        <aside style={sidebarShell}>
+      <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", background: C.bg, position: "relative" }}>
+        {isMobile && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 52,
+              zIndex: 999,
+              background: C.dark,
+              display: "flex",
+              alignItems: "center",
+              padding: "0 10px 0 8px",
+              gap: 10,
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              boxSizing: "border-box",
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Abrir menu"
+              onClick={() => setMobileNavOpen(true)}
+              style={{
+                width: 44,
+                height: 44,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                color: C.white,
+                cursor: "pointer",
+                borderRadius: 8,
+                flexShrink: 0,
+              }}
+            >
+              <IconMenu />
+            </button>
+            <span
+              style={{
+                color: "rgba(255,255,255,0.85)",
+                fontSize: 13,
+                fontWeight: 600,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              Desafio Diabetes
+            </span>
+          </div>
+        )}
+        {isMobile && mobileNavOpen && (
+          <button
+            type="button"
+            aria-label="Fechar menu"
+            onClick={() => setMobileNavOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1001,
+              border: "none",
+              margin: 0,
+              padding: 0,
+              background: "rgba(0,0,0,0.45)",
+              cursor: "pointer",
+            }}
+          />
+        )}
+        <aside style={asideStyle}>
           <div style={{ padding: "0 16px 24px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <img
@@ -1098,7 +1269,7 @@ export function DashboardPage() {
             </button>
           </div>
         </aside>
-        <main style={{ flex: 1, padding: "28px 32px", minWidth: 0 }}>
+        <main style={{ flex: 1, padding: isMobile ? "56px 14px 24px" : "28px 32px", minWidth: 0, boxSizing: "border-box" }}>
           <div style={{ ...cardEnterprise, maxWidth: 720 }}>
             <h2 style={{ fontFamily: "Inter, sans-serif", color: C.dark, fontSize: 18, marginBottom: 8, fontWeight: 700 }}>
               Configuração do Supabase
@@ -1116,14 +1287,93 @@ export function DashboardPage() {
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter, sans-serif", color: C.dark, background: C.bg }}>
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        fontFamily: "Inter, sans-serif",
+        color: C.dark,
+        background: C.bg,
+        position: "relative",
+      }}
+    >
       <style>{`
         @keyframes dashPulseGreen {
           0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
           50% { opacity: 0.75; box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); }
         }
       `}</style>
-      <aside style={sidebarShell}>
+      {isMobile && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 52,
+            zIndex: 999,
+            background: C.dark,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 10px 0 8px",
+            gap: 10,
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            boxSizing: "border-box",
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Abrir menu"
+            onClick={() => setMobileNavOpen(true)}
+            style={{
+              width: 44,
+              height: 44,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "transparent",
+              border: "none",
+              color: C.white,
+              cursor: "pointer",
+              borderRadius: 8,
+              flexShrink: 0,
+            }}
+          >
+            <IconMenu />
+          </button>
+          <span
+            style={{
+              color: "rgba(255,255,255,0.85)",
+              fontSize: 13,
+              fontWeight: 600,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
+            {weekIndicatorText.length > 42 ? `${weekIndicatorText.slice(0, 40)}…` : weekIndicatorText}
+          </span>
+        </div>
+      )}
+      {isMobile && mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setMobileNavOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1001,
+            border: "none",
+            margin: 0,
+            padding: 0,
+            background: "rgba(0,0,0,0.45)",
+            cursor: "pointer",
+          }}
+        />
+      )}
+      <aside style={asideStyle}>
         <div style={{ padding: "0 16px 20px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img
@@ -1278,7 +1528,10 @@ export function DashboardPage() {
               <button
                 key={slug}
                 type="button"
-                onClick={() => setFunnelDetailSlug(slug)}
+                onClick={() => {
+                  setFunnelDetailSlug(slug);
+                  setMobileNavOpen(false);
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -1380,18 +1633,38 @@ export function DashboardPage() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, minWidth: 0, overflow: "auto", padding: "28px 32px 48px" }}>
+      <main style={{ flex: 1, minWidth: 0, overflow: "auto", padding: mainPadding, boxSizing: "border-box" }}>
         {funnelDetailSlug && FUNNEL_FORMS[funnelDetailSlug] ? (
           <FunnelSidebarEmbed
             slug={funnelDetailSlug}
             row={rows[funnelDetailSlug]}
             onBack={() => setFunnelDetailSlug(null)}
+            isMobile={isMobile}
           />
         ) : (
           <>
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: isMobile ? "column" : "row",
+                flexWrap: "wrap",
+                alignItems: isMobile ? "stretch" : "center",
+                justifyContent: "space-between",
+                gap: isMobile ? 12 : 16,
+                marginBottom: 24,
+              }}
+            >
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, minWidth: 0 }}>
-                <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.dark, fontFamily: "Inter, sans-serif" }}>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: isMobile ? 17 : 20,
+                    fontWeight: 700,
+                    color: C.dark,
+                    fontFamily: "Inter, sans-serif",
+                    lineHeight: 1.2,
+                  }}
+                >
                   {sidebarTab === "dashboard"
                     ? "Visão geral"
                     : sidebarTab === "tarefas"
@@ -1411,9 +1684,21 @@ export function DashboardPage() {
                   }}
                   aria-hidden
                 />
-                <span style={{ fontSize: 13, color: "#64748b", fontFamily: "Inter, sans-serif" }}>{weekIndicatorText}</span>
+                {!isMobile && (
+                  <span style={{ fontSize: 13, color: "#64748b", fontFamily: "Inter, sans-serif" }}>{weekIndicatorText}</span>
+                )}
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  alignItems: "stretch",
+                  width: isMobile ? "100%" : "auto",
+                  justifyContent: isMobile ? "stretch" : "flex-end",
+                }}
+              >
                 {(sidebarTab === "dashboard" || sidebarTab === "metas" || sidebarTab === "melhorias") && (
                   <button
                     type="button"
@@ -1434,6 +1719,7 @@ export function DashboardPage() {
                       fontFamily: "Inter, sans-serif",
                       fontSize: 14,
                       fontWeight: 600,
+                      ...(isMobile ? { width: "100%", justifyContent: "center", minHeight: 44, boxSizing: "border-box" } : {}),
                     }}
                   >
                     <IconRefresh />
@@ -1457,6 +1743,7 @@ export function DashboardPage() {
                       fontFamily: "Inter, sans-serif",
                       fontSize: 14,
                       fontWeight: 700,
+                      ...(isMobile ? { width: "100%", minHeight: 44, boxSizing: "border-box" } : {}),
                     }}
                   >
                     + Nova Tarefa
@@ -1478,6 +1765,7 @@ export function DashboardPage() {
                       fontFamily: "Inter, sans-serif",
                       fontSize: 14,
                       fontWeight: 700,
+                      ...(isMobile ? { width: "100%", minHeight: 44, boxSizing: "border-box" } : {}),
                     }}
                   >
                     + Nova Tarefa
@@ -1513,7 +1801,7 @@ export function DashboardPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                    gridTemplateColumns: `repeat(auto-fill, ${gridMinKpi})`,
                     gap: 14,
                   }}
                 >
@@ -1532,7 +1820,16 @@ export function DashboardPage() {
                           position: "relative",
                         }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            gap: 8,
+                            marginBottom: 10,
+                            flexWrap: "wrap",
+                          }}
+                        >
                           <span
                             style={{
                               fontSize: 10,
@@ -1541,6 +1838,7 @@ export function DashboardPage() {
                               letterSpacing: "0.08em",
                               fontWeight: 700,
                               lineHeight: 1.3,
+                              minWidth: 0,
                             }}
                           >
                             {kpi.label}
@@ -1554,12 +1852,22 @@ export function DashboardPage() {
                               background: kpi.varBadge.bg,
                               color: kpi.varBadge.color,
                               whiteSpace: "nowrap",
+                              flexShrink: 0,
                             }}
                           >
                             {kpi.varBadge.label}
                           </span>
                         </div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: C.dark, marginBottom: 12, letterSpacing: "-0.02em" }}>
+                        <div
+                          style={{
+                            fontSize: isMobile ? 18 : 22,
+                            fontWeight: 800,
+                            color: C.dark,
+                            marginBottom: 12,
+                            letterSpacing: "-0.02em",
+                            wordBreak: "break-word",
+                          }}
+                        >
                           {kpi.display}
                         </div>
                         <div style={{ height: 6, background: "#f1f5f9", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
@@ -1592,20 +1900,29 @@ export function DashboardPage() {
                   {kpisChart6.length === 0 ? (
                     <p style={{ color: "#94a3b8", fontSize: 14, margin: 0 }}>Sem dados de faturamento.</p>
                   ) : (
-                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, minHeight: 160, paddingTop: 8 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-end",
+                        justifyContent: "space-between",
+                        gap: isMobile ? 4 : 10,
+                        minHeight: isMobile ? 130 : 160,
+                        paddingTop: 8,
+                      }}
+                    >
                       {kpisChart6.map((row) => {
                         const v = Number(row.faturamento);
                         const hPct = Number.isFinite(v) && faturamentoChartMax > 0 ? (v / faturamentoChartMax) * 100 : 0;
                         return (
                           <div
                             key={row.mes}
-                            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 0 }}
+                            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 0 }}
                           >
                             <div
                               style={{
                                 width: "100%",
-                                maxWidth: 48,
-                                height: 120,
+                                maxWidth: isMobile ? 36 : 48,
+                                height: isMobile ? 100 : 120,
                                 display: "flex",
                                 alignItems: "flex-end",
                                 justifyContent: "center",
@@ -1623,7 +1940,16 @@ export function DashboardPage() {
                                 }}
                               />
                             </div>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textAlign: "center" }}>
+                            <span
+                              style={{
+                                fontSize: isMobile ? 9 : 11,
+                                fontWeight: 600,
+                                color: "#64748b",
+                                textAlign: "center",
+                                lineHeight: 1.2,
+                                wordBreak: "break-word",
+                              }}
+                            >
                               {mesLabelChart(row.mes)}
                             </span>
                           </div>
@@ -1636,7 +1962,7 @@ export function DashboardPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                    gridTemplateColumns: `repeat(auto-fill, ${gridMinFunnel})`,
                     gap: 14,
                   }}
                 >
@@ -1811,60 +2137,72 @@ export function DashboardPage() {
               ) : (
                 <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                   {mainPendingActions.map((item) => (
-                    <li
-                      key={`${item.slug}-${item.id}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "24px minmax(180px, 1fr) minmax(200px, 1fr) 160px 170px",
-                        gap: 10,
-                        alignItems: "center",
-                        background: "#f8fafc",
-                        borderRadius: 10,
-                        border: "0.5px solid #e8ecf0",
-                        padding: "10px 12px",
-                        fontFamily: "Inter, sans-serif",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        onChange={() => completePendingAction(item.id)}
-                        style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
-                        aria-label={`Concluir ação ${item.texto}`}
-                      />
-                      <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
-                      <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
-                      <input
-                        type="date"
-                        value={item.prazo}
-                        onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
-                        style={{
-                          border: "1px solid #e2e8f0",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                          fontSize: 13,
-                          fontFamily: "Inter, sans-serif",
-                          color: C.dark,
-                          background: C.white,
-                        }}
-                      />
-                      <select
-                        value={item.responsavel}
-                        onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
-                        style={{
-                          border: "1px solid #e2e8f0",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                          fontSize: 13,
-                          fontFamily: "Inter, sans-serif",
-                          color: C.dark,
-                          background: C.white,
-                        }}
-                      >
-                        <option value="">Responsável</option>
-                        <option value="Diogo">Diogo</option>
-                        <option value="Turí">Turí</option>
-                        <option value="Pedro">Pedro</option>
-                      </select>
+                    <li key={`${item.slug}-${item.id}`} style={pendingRowStyle}>
+                      {isMobile ? (
+                        <>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <input
+                              type="checkbox"
+                              onChange={() => completePendingAction(item.id)}
+                              style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0, marginTop: 2 }}
+                              aria-label={`Concluir ação ${item.texto}`}
+                            />
+                            <span style={{ fontSize: 14, color: C.dark, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{item.texto}</span>
+                          </div>
+                          <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
+                          <input
+                            type="date"
+                            value={item.prazo}
+                            onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                            style={dateInputCompact}
+                          />
+                          <select
+                            value={item.responsavel}
+                            onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                            style={{ ...dateInputCompact, cursor: "pointer" }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="checkbox"
+                            onChange={() => completePendingAction(item.id)}
+                            style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                            aria-label={`Concluir ação ${item.texto}`}
+                          />
+                          <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                          <span style={{ fontSize: 13, color: "#64748b" }}>{item.funnelTitle}</span>
+                          <input
+                            type="date"
+                            value={item.prazo}
+                            onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                            style={{ ...dateInputCompact, width: "auto" }}
+                          />
+                          <select
+                            value={item.responsavel}
+                            onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                            style={{
+                              border: "1px solid #e2e8f0",
+                              borderRadius: 8,
+                              padding: "8px 10px",
+                              fontSize: 13,
+                              fontFamily: "Inter, sans-serif",
+                              color: C.dark,
+                              background: C.white,
+                            }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1885,13 +2223,13 @@ export function DashboardPage() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                  gridTemplateColumns: `repeat(auto-fill, ${gridMinKpi})`,
                   gap: 12,
                   alignItems: "end",
                   marginBottom: 14,
                 }}
               >
-                <div style={{ gridColumn: "1 / -1", maxWidth: 220 }}>
+                <div style={{ gridColumn: "1 / -1", maxWidth: isMobile ? "100%" : 220 }}>
                   <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>Mês</label>
                   <input
                     type="month"
@@ -2045,7 +2383,7 @@ export function DashboardPage() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                  gridTemplateColumns: `repeat(auto-fill, ${gridMinMeta})`,
                   gap: 12,
                   alignItems: "end",
                 }}
@@ -2192,7 +2530,7 @@ export function DashboardPage() {
                               fontFamily: "Inter, sans-serif",
                             }}
                           >
-                            <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ flex: 1, minWidth: isMobile ? 0 : 200 }}>
                               <span style={{ fontWeight: 600, color: C.dark }}>
                                 {metaMetricaDisplayLabel(m.funil_slug, m.metrica)}
                               </span>
@@ -2242,7 +2580,7 @@ export function DashboardPage() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                  gridTemplateColumns: `repeat(auto-fill, ${gridMinForm})`,
                   gap: 12,
                   alignItems: "end",
                   marginBottom: 16,
@@ -2310,59 +2648,70 @@ export function DashboardPage() {
               ) : (
                 <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                   {sistemaPendingActions.map((item) => (
-                    <li
-                      key={`sistema-${item.id}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "24px minmax(180px, 1fr) 160px 170px",
-                        gap: 10,
-                        alignItems: "center",
-                        background: "#f8fafc",
-                        borderRadius: 10,
-                        border: "0.5px solid #e8ecf0",
-                        padding: "10px 12px",
-                        fontFamily: "Inter, sans-serif",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        onChange={() => completePendingAction(item.id)}
-                        style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
-                        aria-label={`Concluir melhoria ${item.texto}`}
-                      />
-                      <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
-                      <input
-                        type="date"
-                        value={item.prazo}
-                        onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
-                        style={{
-                          border: "1px solid #e2e8f0",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                          fontSize: 13,
-                          fontFamily: "Inter, sans-serif",
-                          color: C.dark,
-                          background: C.white,
-                        }}
-                      />
-                      <select
-                        value={item.responsavel}
-                        onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
-                        style={{
-                          border: "1px solid #e2e8f0",
-                          borderRadius: 8,
-                          padding: "8px 10px",
-                          fontSize: 13,
-                          fontFamily: "Inter, sans-serif",
-                          color: C.dark,
-                          background: C.white,
-                        }}
-                      >
-                        <option value="">Responsável</option>
-                        <option value="Diogo">Diogo</option>
-                        <option value="Turí">Turí</option>
-                        <option value="Pedro">Pedro</option>
-                      </select>
+                    <li key={`sistema-${item.id}`} style={sistemaRowStyle}>
+                      {isMobile ? (
+                        <>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <input
+                              type="checkbox"
+                              onChange={() => completePendingAction(item.id)}
+                              style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0, marginTop: 2 }}
+                              aria-label={`Concluir melhoria ${item.texto}`}
+                            />
+                            <span style={{ fontSize: 14, color: C.dark, flex: 1, minWidth: 0, wordBreak: "break-word" }}>{item.texto}</span>
+                          </div>
+                          <input
+                            type="date"
+                            value={item.prazo}
+                            onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                            style={dateInputCompact}
+                          />
+                          <select
+                            value={item.responsavel}
+                            onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                            style={{ ...dateInputCompact, cursor: "pointer" }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="checkbox"
+                            onChange={() => completePendingAction(item.id)}
+                            style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary }}
+                            aria-label={`Concluir melhoria ${item.texto}`}
+                          />
+                          <span style={{ fontSize: 14, color: C.dark }}>{item.texto}</span>
+                          <input
+                            type="date"
+                            value={item.prazo}
+                            onChange={(e) => updatePendingAction(item.id, { prazo: e.target.value || null })}
+                            style={{ ...dateInputCompact, width: "auto" }}
+                          />
+                          <select
+                            value={item.responsavel}
+                            onChange={(e) => updatePendingAction(item.id, { responsavel: e.target.value || null })}
+                            style={{
+                              border: "1px solid #e2e8f0",
+                              borderRadius: 8,
+                              padding: "8px 10px",
+                              fontSize: 13,
+                              fontFamily: "Inter, sans-serif",
+                              color: C.dark,
+                              background: C.white,
+                            }}
+                          >
+                            <option value="">Responsável</option>
+                            <option value="Diogo">Diogo</option>
+                            <option value="Turí">Turí</option>
+                            <option value="Pedro">Pedro</option>
+                          </select>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
