@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWindowSize } from "../hooks/useWindowSize";
 
-const BG = "#F4F6FA";
 const PRIMARY = "#FF0028";
 const DARK = "#0D1B3E";
 
@@ -12,12 +11,26 @@ const USERS = [
   { email: "suporte@desafiodiabetes.com", password: "Suporte1234", nome: "Pedro" },
 ];
 
+const inputBase = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "14px 16px",
+  borderRadius: 8,
+  fontSize: 16,
+  color: "#FFFFFF",
+  fontFamily: "inherit",
+  background: "rgba(255,255,255,0.08)",
+  outline: "none",
+};
+
 export function LoginPage() {
   const navigate = useNavigate();
   const { isMobile } = useWindowSize(768);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [senhaFocused, setSenhaFocused] = useState(false);
 
   useEffect(() => {
     if (sessionStorage.getItem("dd_user")) {
@@ -39,59 +52,67 @@ export function LoginPage() {
     navigate("/dashboard", { replace: true });
   };
 
+  const inputBorder = (focused) =>
+    focused ? `1px solid ${PRIMARY}` : "1px solid rgba(255,255,255,0.2)";
+
+  const horizontalPad = isMobile ? 20 : 32;
+  const logoMax = isMobile ? 160 : 220;
+
   return (
     <div
+      id="login-page-root"
       style={{
         minHeight: "100vh",
-        background: BG,
+        height: "100%",
+        background: DARK,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: isMobile ? 12 : 24,
+        padding: `${isMobile ? 28 : 40}px ${horizontalPad}px`,
         fontFamily: "Inter, sans-serif",
         boxSizing: "border-box",
       }}
     >
+      <style>{`
+        #login-page-root input::placeholder { color: rgba(255, 255, 255, 0.45); }
+        #login-page-root input::-webkit-input-placeholder { color: rgba(255, 255, 255, 0.45); }
+      `}</style>
+
       <div
         style={{
           width: "100%",
           maxWidth: 400,
-          background: "#fff",
-          borderRadius: 12,
-          padding: isMobile ? 20 : 40,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-          border: "0.5px solid #e8ecf0",
-          boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
-        <div
+        <img
+          src="/Logo Vertical (3).png"
+          alt="Desafio Diabetes"
           style={{
-            display: "flex",
-            flexDirection: isMobile ? "column" : "row",
-            alignItems: "center",
-            gap: isMobile ? 12 : 14,
-            marginBottom: isMobile ? 24 : 32,
-            textAlign: isMobile ? "center" : "left",
+            width: "100%",
+            maxWidth: logoMax,
+            height: "auto",
+            objectFit: "contain",
+            display: "block",
+            marginBottom: isMobile ? 40 : 56,
           }}
-        >
-          <img
-            src="/Logo Vertical (3).png"
-            alt="Desafio Diabetes"
-            style={{ width: isMobile ? 52 : 60, height: isMobile ? 52 : 60, objectFit: "contain", flexShrink: 0 }}
-          />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: DARK, fontSize: isMobile ? 17 : 18, fontWeight: 700, lineHeight: 1.2 }}>Desafio Diabetes</div>
-            <div style={{ color: "rgba(13,27,62,0.45)", fontSize: 10, letterSpacing: "0.1em", marginTop: 4, fontWeight: 600 }}>
-              DASHBOARD CEO
-            </div>
-          </div>
-        </div>
+        />
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 18 }}>
+        <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: 400 }}>
+          <div style={{ marginBottom: 20 }}>
             <label
               htmlFor="login-email"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 8 }}
+              style={{
+                display: "block",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "rgba(255,255,255,0.72)",
+                marginBottom: 8,
+                letterSpacing: "0.02em",
+              }}
             >
               E-mail
             </label>
@@ -101,22 +122,26 @@ export function LoginPage() {
               autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onFocus={() => setEmailFocused(true)}
+              onBlur={() => setEmailFocused(false)}
+              placeholder="seu@email.com"
               style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "12px 14px",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                fontSize: 15,
-                color: DARK,
-                fontFamily: "inherit",
+                ...inputBase,
+                border: inputBorder(emailFocused),
               }}
             />
           </div>
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: erro ? 14 : 8 }}>
             <label
               htmlFor="login-senha"
-              style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 8 }}
+              style={{
+                display: "block",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "rgba(255,255,255,0.72)",
+                marginBottom: 8,
+                letterSpacing: "0.02em",
+              }}
             >
               Senha
             </label>
@@ -126,36 +151,45 @@ export function LoginPage() {
               autoComplete="current-password"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
+              onFocus={() => setSenhaFocused(true)}
+              onBlur={() => setSenhaFocused(false)}
+              placeholder="••••••••"
               style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "12px 14px",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                fontSize: 15,
-                color: DARK,
-                fontFamily: "inherit",
+                ...inputBase,
+                border: inputBorder(senhaFocused),
               }}
             />
           </div>
           {erro ? (
-            <p style={{ color: "#dc2626", fontSize: 14, marginBottom: 16, marginTop: 0 }}>{erro}</p>
+            <p
+              role="alert"
+              style={{
+                color: "#fecaca",
+                fontSize: 14,
+                marginBottom: 16,
+                marginTop: 0,
+                lineHeight: 1.45,
+              }}
+            >
+              {erro}
+            </p>
           ) : null}
           <button
             type="submit"
             style={{
               width: "100%",
               background: PRIMARY,
-              color: "#fff",
+              color: "#FFFFFF",
               border: "none",
               padding: "14px 16px",
               borderRadius: 8,
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: 700,
               cursor: "pointer",
               fontFamily: "Inter, sans-serif",
               minHeight: 48,
               boxSizing: "border-box",
+              marginTop: erro ? 0 : 8,
             }}
           >
             Entrar
