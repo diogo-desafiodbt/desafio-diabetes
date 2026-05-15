@@ -510,6 +510,28 @@ function formatKpiExecChartValue(val, kind) {
   return Math.round(n).toLocaleString("pt-BR");
 }
 
+/** Valor exibido na grade de KPIs do modal executivo (R$, inteiros pt-BR, %). */
+function formatKpiExecModalSummaryValue(val, kind) {
+  if (val == null || val === "") return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "—";
+  if (kind === "money") return formatMoneyBRL(n);
+  if (kind === "pct") return `${n.toLocaleString("pt-BR")}%`;
+  return Math.round(n).toLocaleString("pt-BR");
+}
+
+/** Cor do número no modal: verde ≥100%, amarelo ≥70%, vermelho <70%; sem meta → neutro. */
+function kpiExecModalSummaryValueColor(curr, meta) {
+  const a = Number(curr);
+  const m = Number(meta);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  if (!Number.isFinite(a)) return null;
+  const pct = (a / m) * 100;
+  if (pct >= 100) return "#22c55e";
+  if (pct >= 70) return "#eab308";
+  return "#ef4444";
+}
+
 function KpiExecChartTooltip({ active, payload, label, metrics }) {
   if (!active || !payload?.length) return null;
   const datum = payload[0]?.payload ?? {};
@@ -555,6 +577,13 @@ const KPI_EXEC_CARD_DEFS = [
     id: "financeiro",
     title: "💰 FINANCEIRO",
     primary: { type: "receita_total" },
+    summaryMetrics: [
+      { type: "receita_total", label: "Receita Total", kind: "money" },
+      { key: "receita_suplemento", metaKey: "meta_receita_suplemento", label: "Receita Suplemento", kind: "money" },
+      { key: "receita_livro", metaKey: "meta_receita_livro", label: "Receita Livro", kind: "money" },
+      { key: "receita_app", metaKey: "meta_receita_app", label: "Receita App", kind: "money" },
+      { key: "receita_adsense", metaKey: "meta_receita_adsense", label: "Receita AdSense", kind: "money" },
+    ],
     chartMetrics: [
       { key: "receita_suplemento", label: "Receita Suplemento", kind: "money" },
       { key: "receita_livro", label: "Receita Livro", kind: "money" },
@@ -567,6 +596,11 @@ const KPI_EXEC_CARD_DEFS = [
     id: "suplemento",
     title: "💊 SUPLEMENTO",
     primary: { key: "compradores_total", metaKey: "meta_compradores", kind: "num" },
+    summaryMetrics: [
+      { key: "compradores_total", metaKey: "meta_compradores", label: "Compradores Total", kind: "num" },
+      { key: "compradores_novos", metaKey: "meta_compradores_novos", label: "Compradores Novos", kind: "num" },
+      { key: "suplementos_vendidos", metaKey: "meta_suplementos", label: "Suplementos Vendidos", kind: "num" },
+    ],
     chartMetrics: [
       { key: "compradores_total", label: "Compradores Total", kind: "num" },
       { key: "compradores_novos", label: "Compradores Novos", kind: "num" },
@@ -577,6 +611,10 @@ const KPI_EXEC_CARD_DEFS = [
     id: "primeiro_passo",
     title: "📖 PRIMEIRO PASSO",
     primary: { key: "livros_vendidos", metaKey: "meta_livros", kind: "num" },
+    summaryMetrics: [
+      { key: "livros_vendidos", metaKey: "meta_livros", label: "Livros Vendidos", kind: "num" },
+      { key: "vendas_pagas_livro", metaKey: "meta_vendas_pagas_livro", label: "Vendas Pagas Livro", kind: "num" },
+    ],
     chartMetrics: [
       { key: "livros_vendidos", label: "Livros Vendidos", kind: "num" },
       { key: "vendas_pagas_livro", label: "Vendas Pagas Livro", kind: "num" },
@@ -586,6 +624,11 @@ const KPI_EXEC_CARD_DEFS = [
     id: "audiencia",
     title: "📣 AUDIÊNCIA",
     primary: { key: "views_totais", metaKey: "meta_views", kind: "num" },
+    summaryMetrics: [
+      { key: "views_totais", metaKey: "meta_views", label: "Views Totais", kind: "num" },
+      { key: "inscritos_novos", metaKey: "meta_inscritos", label: "Inscritos Novos", kind: "num" },
+      { key: "clicks_totais", metaKey: "meta_clicks", label: "Clicks Totais", kind: "num" },
+    ],
     chartMetrics: [
       { key: "views_totais", label: "Views Totais", kind: "num" },
       { key: "inscritos_novos", label: "Inscritos Novos", kind: "num" },
@@ -1517,6 +1560,34 @@ export function DashboardPage() {
   }, [kpiExecModalDef, kpisMensaisAllRows]);
 
   const kpiExecModalYKind = kpiExecModalDef?.chartMetrics?.[0]?.kind ?? "num";
+
+  const kpiExecModalSummaryCells = useMemo(() => {
+    if (!kpiExecModalDef?.summaryMetrics) return [];
+    const r = kpiMesAtualRow;
+    return kpiExecModalDef.summaryMetrics.map((spec) => {
+      let curr;
+      let meta;
+      if (spec.type === "receita_total") {
+        curr = r ? kpiReceitaTotal(r) : null;
+        meta = r ? kpiMetaReceitaTotal(r) : null;
+      } else {
+        curr = r ? getKpiField(r, spec.key) : null;
+        meta = r ? getKpiField(r, spec.metaKey) : null;
+      }
+      const nCurr = Number(curr);
+      const nMeta = Number(meta);
+      const hasVal = curr != null && curr !== "" && Number.isFinite(nCurr);
+      const hasMeta = meta != null && meta !== "" && Number.isFinite(nMeta);
+      const valueDisplay = hasVal ? formatKpiExecModalSummaryValue(nCurr, spec.kind) : "—";
+      const metaDisplay = hasMeta
+        ? `Meta: ${formatKpiExecModalSummaryValue(nMeta, spec.kind)}`
+        : "Meta: —";
+      const semColor = hasVal ? kpiExecModalSummaryValueColor(nCurr, nMeta) : null;
+      const valueColor = !hasVal ? "#94a3b8" : semColor ?? C.dark;
+      const cellKey = spec.type === "receita_total" ? "receita_total" : spec.key;
+      return { key: cellKey, label: spec.label, valueDisplay, metaDisplay, valueColor };
+    });
+  }, [kpiExecModalDef, kpiMesAtualRow]);
 
   const metaMetricaOptions = useMemo(() => {
     if (!metaFunil) return [];
@@ -2799,7 +2870,7 @@ export function DashboardPage() {
                         display: "flex",
                         flexDirection: "column",
                         gap: 20,
-                        overflow: "auto",
+                        overflow: "hidden",
                         fontFamily: "Inter, sans-serif",
                         boxShadow: "0 24px 64px rgba(13,27,62,0.25)",
                       }}
@@ -2840,7 +2911,71 @@ export function DashboardPage() {
                           ×
                         </button>
                       </div>
-                      <div style={{ flex: "1 1 auto", width: "100%", minWidth: 0, height: "calc(80vh - 160px)", minHeight: 280 }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          minHeight: 0,
+                          width: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 0,
+                        }}
+                      >
+                        <section
+                          style={{
+                            padding: 16,
+                            borderBottom: "1px solid #e8ecf0",
+                            flexShrink: 0,
+                            boxSizing: "border-box",
+                            width: "100%",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))",
+                              gap: 16,
+                            }}
+                          >
+                            {kpiExecModalSummaryCells.map((c) => (
+                              <div key={c.key} style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontSize: 20,
+                                    fontWeight: 700,
+                                    color: c.valueColor,
+                                    lineHeight: 1.2,
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                >
+                                  {c.valueDisplay}
+                                </div>
+                                <div
+                                  style={{
+                                    marginTop: 6,
+                                    fontSize: 11,
+                                    color: "#64748b",
+                                    lineHeight: 1.35,
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                >
+                                  {c.label}
+                                </div>
+                                <div
+                                  style={{
+                                    marginTop: 4,
+                                    fontSize: 11,
+                                    color: "#64748b",
+                                    fontFamily: "Inter, sans-serif",
+                                  }}
+                                >
+                                  {c.metaDisplay}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                        <div style={{ flex: 1, minHeight: 240, width: "100%", minWidth: 0 }}>
                         {kpiExecModalChartData.length === 0 ||
                         kpiExecModalChartData.every((row) =>
                           kpiExecModalDef.chartMetrics.every((m) => row[m.key] == null || !Number.isFinite(Number(row[m.key])))
@@ -2886,6 +3021,7 @@ export function DashboardPage() {
                             </LineChart>
                           </ResponsiveContainer>
                         )}
+                        </div>
                       </div>
                     </div>
                   </div>
