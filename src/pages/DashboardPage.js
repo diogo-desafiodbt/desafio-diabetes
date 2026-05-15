@@ -18,14 +18,29 @@
  *
  * create table if not exists public.kpis_mensais (
  *   mes text primary key,
- *   faturamento numeric not null default 0,
- *   meta_faturamento numeric not null default 0,
- *   downloads numeric not null default 0,
- *   meta_downloads numeric not null default 0,
- *   suplementos numeric not null default 0,
- *   meta_suplementos numeric not null default 0,
- *   livros numeric not null default 0,
- *   meta_livros numeric not null default 0,
+ *   -- Audiência
+ *   views_totais numeric, meta_views numeric,
+ *   inscritos_novos numeric, meta_inscritos numeric,
+ *   clicks_totais numeric, meta_clicks numeric,
+ *   click_rate numeric, meta_click_rate numeric,
+ *   -- Vendas
+ *   suplementos_vendidos numeric, meta_suplementos numeric,
+ *   compradores_total numeric, meta_compradores numeric,
+ *   taxa_recompra numeric, meta_taxa_recompra numeric,
+ *   livros_vendidos numeric, meta_livros numeric,
+ *   vendas_pagas_livro numeric, meta_vendas_pagas_livro numeric,
+ *   -- Financeiro
+ *   faturamento numeric, meta_faturamento numeric,
+ *   receita_suplemento numeric, meta_receita_suplemento numeric,
+ *   receita_livro numeric, meta_receita_livro numeric,
+ *   receita_app numeric, meta_receita_app numeric,
+ *   receita_adsense numeric, meta_receita_adsense numeric,
+ *   pro_labore numeric, meta_pro_labore numeric,
+ *   margem_operacional numeric, meta_margem_operacional numeric,
+ *   -- Tráfego pago
+ *   orcamento_pago numeric, meta_orcamento_pago numeric,
+ *   cac_livro numeric, meta_cac_livro numeric,
+ *   margem_campanha numeric, meta_margem_campanha numeric,
  *   created_at timestamptz not null default now(),
  *   updated_at timestamptz not null default now()
  * );
@@ -262,6 +277,70 @@ function formatMoneyBRL(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "—";
   return x.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
+
+const KPI_FORM_SECTIONS = [
+  {
+    id: "audiencia",
+    title: "Audiência",
+    pairs: [
+      { key: "views_totais", metaKey: "meta_views", label: "Views Totais", metaLabel: "Meta Views", kind: "num" },
+      { key: "inscritos_novos", metaKey: "meta_inscritos", label: "Inscritos Novos", metaLabel: "Meta Inscritos", kind: "num" },
+      { key: "clicks_totais", metaKey: "meta_clicks", label: "Clicks Totais", metaLabel: "Meta Clicks", kind: "num" },
+      { key: "click_rate", metaKey: "meta_click_rate", label: "Click Rate (%)", metaLabel: "Meta Click Rate (%)", kind: "pct" },
+    ],
+  },
+  {
+    id: "vendas",
+    title: "Vendas",
+    pairs: [
+      { key: "suplementos_vendidos", metaKey: "meta_suplementos", label: "Suplementos Vendidos", metaLabel: "Meta Suplementos", kind: "num" },
+      { key: "compradores_total", metaKey: "meta_compradores", label: "Compradores Total", metaLabel: "Meta Compradores", kind: "num" },
+      { key: "taxa_recompra", metaKey: "meta_taxa_recompra", label: "Taxa de Recompra (%)", metaLabel: "Meta Taxa Recompra (%)", kind: "pct" },
+      { key: "livros_vendidos", metaKey: "meta_livros", label: "Livros (Primeiro Passo) Vendidos", metaLabel: "Meta Livros", kind: "num" },
+      { key: "vendas_pagas_livro", metaKey: "meta_vendas_pagas_livro", label: "Vendas Pagas Livro", metaLabel: "Meta Vendas Pagas Livro", kind: "num" },
+    ],
+  },
+  {
+    id: "financeiro",
+    title: "Financeiro",
+    pairs: [
+      { key: "faturamento", metaKey: "meta_faturamento", label: "Faturamento Total (R$)", metaLabel: "Meta Faturamento (R$)", kind: "money" },
+      { key: "receita_suplemento", metaKey: "meta_receita_suplemento", label: "Receita Suplemento (R$)", metaLabel: "Meta Receita Suplemento (R$)", kind: "money" },
+      { key: "receita_livro", metaKey: "meta_receita_livro", label: "Receita Livro (R$)", metaLabel: "Meta Receita Livro (R$)", kind: "money" },
+      { key: "receita_app", metaKey: "meta_receita_app", label: "Receita App (R$)", metaLabel: "Meta Receita App (R$)", kind: "money" },
+      { key: "receita_adsense", metaKey: "meta_receita_adsense", label: "Receita AdSense (R$)", metaLabel: "Meta Receita AdSense (R$)", kind: "money" },
+      { key: "pro_labore", metaKey: "meta_pro_labore", label: "Pró-labore (R$)", metaLabel: "Meta Pró-labore (R$)", kind: "money" },
+      { key: "margem_operacional", metaKey: "meta_margem_operacional", label: "Margem Operacional (%)", metaLabel: "Meta Margem Operacional (%)", kind: "pct" },
+    ],
+  },
+  {
+    id: "trafego_pago",
+    title: "Tráfego Pago",
+    pairs: [
+      { key: "orcamento_pago", metaKey: "meta_orcamento_pago", label: "Orçamento Pago (R$)", metaLabel: "Meta Orçamento (R$)", kind: "money" },
+      { key: "cac_livro", metaKey: "meta_cac_livro", label: "CAC Livro (R$)", metaLabel: "Meta CAC Livro (R$)", kind: "money" },
+      { key: "margem_campanha", metaKey: "meta_margem_campanha", label: "Margem da Campanha (%)", metaLabel: "Meta Margem Campanha (%)", kind: "pct" },
+    ],
+  },
+];
+
+const KPI_FORM_KEYS = KPI_FORM_SECTIONS.flatMap((s) => s.pairs.flatMap((p) => [p.key, p.metaKey]));
+
+function emptyKpiForm() {
+  return Object.fromEntries(KPI_FORM_KEYS.map((k) => [k, ""]));
+}
+
+function dbValueToKpiFormField(val) {
+  if (val == null || val === "") return "";
+  return String(val);
+}
+
+function kpiFormFieldToDb(val) {
+  const s = String(val ?? "").trim();
+  if (s === "") return null;
+  const n = Number(s.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }
 
 function IconGrid() {
@@ -605,14 +684,7 @@ export function DashboardPage() {
   const [kpisChart6, setKpisChart6] = useState([]);
 
   const [kpiFormMes, setKpiFormMes] = useState(() => currentMesYYYYMM());
-  const [kpiFormFat, setKpiFormFat] = useState("");
-  const [kpiFormMetaFat, setKpiFormMetaFat] = useState("");
-  const [kpiFormDownloads, setKpiFormDownloads] = useState("");
-  const [kpiFormMetaDown, setKpiFormMetaDown] = useState("");
-  const [kpiFormSup, setKpiFormSup] = useState("");
-  const [kpiFormMetaSup, setKpiFormMetaSup] = useState("");
-  const [kpiFormLivros, setKpiFormLivros] = useState("");
-  const [kpiFormMetaLivros, setKpiFormMetaLivros] = useState("");
+  const [kpiForm, setKpiForm] = useState(emptyKpiForm);
   const [kpiFormSaving, setKpiFormSaving] = useState(false);
   const [kpiFormFeedback, setKpiFormFeedback] = useState(null);
 
@@ -782,41 +854,31 @@ export function DashboardPage() {
     setKpiFormFeedback(null);
     const { data, error } = await supabase.from("kpis_mensais").select("*").eq("mes", kpiFormMes).maybeSingle();
     if (error || !data) {
-      setKpiFormFat("");
-      setKpiFormMetaFat("");
-      setKpiFormDownloads("");
-      setKpiFormMetaDown("");
-      setKpiFormSup("");
-      setKpiFormMetaSup("");
-      setKpiFormLivros("");
-      setKpiFormMetaLivros("");
+      setKpiForm(emptyKpiForm());
       return;
     }
-    setKpiFormFat(String(data.faturamento ?? ""));
-    setKpiFormMetaFat(String(data.meta_faturamento ?? ""));
-    setKpiFormDownloads(String(data.downloads ?? ""));
-    setKpiFormMetaDown(String(data.meta_downloads ?? ""));
-    setKpiFormSup(String(data.suplementos ?? ""));
-    setKpiFormMetaSup(String(data.meta_suplementos ?? ""));
-    setKpiFormLivros(String(data.livros ?? ""));
-    setKpiFormMetaLivros(String(data.meta_livros ?? ""));
+    const next = emptyKpiForm();
+    KPI_FORM_KEYS.forEach((key) => {
+      next[key] = dbValueToKpiFormField(data[key]);
+    });
+    setKpiForm(next);
   }, [kpiFormMes]);
+
+  const setKpiFormField = (field, value) => {
+    setKpiForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   const saveKpisMensais = async () => {
     if (!supabase) return;
     setKpiFormSaving(true);
     setKpiFormFeedback(null);
-    const row = {
-      mes: kpiFormMes,
-      faturamento: Number(kpiFormFat) || 0,
-      meta_faturamento: Number(kpiFormMetaFat) || 0,
-      downloads: Number(kpiFormDownloads) || 0,
-      meta_downloads: Number(kpiFormMetaDown) || 0,
-      suplementos: Number(kpiFormSup) || 0,
-      meta_suplementos: Number(kpiFormMetaSup) || 0,
-      livros: Number(kpiFormLivros) || 0,
-      meta_livros: Number(kpiFormMetaLivros) || 0,
-    };
+    const row = { mes: kpiFormMes };
+    KPI_FORM_SECTIONS.forEach((section) => {
+      section.pairs.forEach((pair) => {
+        row[pair.key] = kpiFormFieldToDb(kpiForm[pair.key]);
+        row[pair.metaKey] = kpiFormFieldToDb(kpiForm[pair.metaKey]);
+      });
+    });
     const { error } = await supabase.from("kpis_mensais").upsert(row, { onConflict: "mes" });
     setKpiFormSaving(false);
     if (error) {
@@ -948,10 +1010,10 @@ export function DashboardPage() {
       return { label, display, pct, varBadge };
     };
     return [
-      item("Faturamento do mês", "faturamento", "meta_faturamento", "money"),
-      item("Downloads do app", "downloads", "meta_downloads", "num"),
-      item("Suplementos vendidos", "suplementos", "meta_suplementos", "num"),
-      item("Livros vendidos", "livros", "meta_livros", "num"),
+      item("Receita Total", "faturamento", "meta_faturamento", "money"),
+      item("Suplementos Vendidos", "suplementos_vendidos", "meta_suplementos", "num"),
+      item("Primeiro Passo Vendidos", "livros_vendidos", "meta_livros", "num"),
+      item("Compradores Suplemento", "compradores_total", "meta_compradores", "num"),
     ];
   }, [kpiMesAtualRow, kpiMesAnteriorRow]);
 
@@ -1116,6 +1178,72 @@ export function DashboardPage() {
       e.currentTarget.style.backgroundColor = "transparent";
     },
   };
+
+  const kpiFormInputStep = (kind) => (kind === "num" ? "1" : "any");
+
+  const renderKpiFormSection = (section) => (
+    <div
+      key={section.id}
+      style={{
+        marginBottom: 16,
+        borderRadius: 12,
+        border: "0.5px solid #e8ecf0",
+        overflow: "hidden",
+        background: C.white,
+      }}
+    >
+      <div
+        style={{
+          background: C.dark,
+          color: C.white,
+          padding: "12px 16px",
+          fontFamily: "Inter, sans-serif",
+          fontSize: 14,
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+        }}
+      >
+        {section.title}
+      </div>
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+        {section.pairs.map((pair) => (
+          <div
+            key={pair.key}
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+              gap: 12,
+            }}
+          >
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                {pair.label}
+              </label>
+              <input
+                type="number"
+                step={kpiFormInputStep(pair.kind)}
+                value={kpiForm[pair.key] ?? ""}
+                onChange={(e) => setKpiFormField(pair.key, e.target.value)}
+                style={inputFieldStyle}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
+                {pair.metaLabel}
+              </label>
+              <input
+                type="number"
+                step={kpiFormInputStep(pair.kind)}
+                value={kpiForm[pair.metaKey] ?? ""}
+                onChange={(e) => setKpiFormField(pair.metaKey, e.target.value)}
+                style={inputFieldStyle}
+              />
+            </div>
+            </div>
+        ))}
+      </div>
+    </div>
+  );
 
   const renderNovaTarefaForm = (opts = {}) => {
     const { showCancel } = opts;
@@ -2391,129 +2519,16 @@ export function DashboardPage() {
               <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16, fontFamily: "Inter, sans-serif", lineHeight: 1.5 }}>
                 Cadastre ou atualize realizados e metas do mês. Um único registro por <strong>mes</strong> (YYYY-MM).
               </p>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(auto-fill, ${gridMinKpi})`,
-                  gap: 12,
-                  alignItems: "end",
-                  marginBottom: 14,
-                }}
-              >
-                <div style={{ gridColumn: "1 / -1", maxWidth: isMobile ? "100%" : 220 }}>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>Mês</label>
-                  <input
-                    type="month"
-                    value={kpiFormMes}
-                    onChange={(e) => setKpiFormMes(e.target.value)}
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Faturamento realizado (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={kpiFormFat}
-                    onChange={(e) => setKpiFormFat(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Meta faturamento (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={kpiFormMetaFat}
-                    onChange={(e) => setKpiFormMetaFat(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Downloads realizados
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormDownloads}
-                    onChange={(e) => setKpiFormDownloads(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Meta downloads
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormMetaDown}
-                    onChange={(e) => setKpiFormMetaDown(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Suplementos vendidos
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormSup}
-                    onChange={(e) => setKpiFormSup(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Meta suplementos
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormMetaSup}
-                    onChange={(e) => setKpiFormMetaSup(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Livros vendidos
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormLivros}
-                    onChange={(e) => setKpiFormLivros(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                    Meta livros
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={kpiFormMetaLivros}
-                    onChange={(e) => setKpiFormMetaLivros(e.target.value)}
-                    placeholder="0"
-                    style={inputFieldStyle}
-                  />
-                </div>
+              <div style={{ marginBottom: 20, maxWidth: isMobile ? "100%" : 220 }}>
+                <label style={{ display: "block", fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>Mês</label>
+                <input
+                  type="month"
+                  value={kpiFormMes}
+                  onChange={(e) => setKpiFormMes(e.target.value)}
+                  style={inputFieldStyle}
+                />
               </div>
+              {KPI_FORM_SECTIONS.map(renderKpiFormSection)}
               {kpiFormFeedback && (
                 <p
                   style={{
