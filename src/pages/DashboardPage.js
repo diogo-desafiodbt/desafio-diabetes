@@ -54,6 +54,10 @@
  * );
  * create index if not exists comentarios_acoes_acao_id_idx on public.comentarios_acoes (acao_id);
  *
+ * -- Migration: controle de comentários vistos por usuário (nome em dd_user)
+ * alter table public.comentarios_acoes
+ *   add column if not exists visto_por text[] not null default '{}';
+ *
  * ------------------------------------------------------------------
  */
 
@@ -134,6 +138,32 @@ function readComentarioAutorNome() {
     /* ignore */
   }
   return readDdUser()?.nome?.trim() || "—";
+}
+
+function parseVistoPor(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed.map((x) => String(x).trim()).filter(Boolean);
+    } catch {
+      return [s];
+    }
+    return [s];
+  }
+  return [];
+}
+
+function isComentarioNaoVisto(comentario, viewerNome) {
+  const viewer = String(viewerNome ?? "").trim();
+  if (!viewer || viewer === "—") return false;
+  const autor = String(comentario?.autor ?? "").trim();
+  if (!autor || autor === viewer) return false;
+  const visto = parseVistoPor(comentario?.visto_por);
+  return !visto.includes(viewer);
 }
 
 function formatComentarioDateTime(iso) {
@@ -806,6 +836,67 @@ export function DashboardPage() {
   const [comentariosError, setComentariosError] = useState(null);
   const [novoComentarioTexto, setNovoComentarioTexto] = useState("");
   const [comentarioSubmitting, setComentarioSubmitting] = useState(false);
+  const [comentariosNaoVistos, setComentariosNaoVistos] = useState({});
+
+  const loadComentariosNaoVistosCount = useCallback(async (acaoIds) => {
+    if (!supabase || !acaoIds?.length) {
+      setComentariosNaoVistos({});
+      return;
+    }
+    const viewer = readComentarioAutorNome();
+    if (!viewer || viewer === "—") {
+      setComentariosNaoVistos({});
+      return;
+    }
+    const { data, error } = await supabase
+      .from("comentarios_acoes")
+      .select("id, acao_id, autor, visto_por")
+      .in("acao_id", acaoIds);
+    if (error) {
+      setComentariosNaoVistos({});
+      return;
+    }
+    const counts = Object.fromEntries(acaoIds.map((id) => [id, 0]));
+    (data ?? []).forEach((c) => {
+      if (!isComentarioNaoVisto(c, viewer)) return;
+      const aid = c.acao_id;
+      if (aid) counts[aid] = (counts[aid] ?? 0) + 1;
+    });
+    setComentariosNaoVistos(counts);
+  }, []);
+
+  const markComentariosVistos = useCallback(
+    async (acaoId) => {
+      if (!supabase || !acaoId) return;
+      const viewer = readComentarioAutorNome();
+      if (!viewer || viewer === "—") return;
+      const { data, error } = await supabase
+        .from("comentarios_acoes")
+        .select("id, autor, visto_por")
+        .eq("acao_id", acaoId);
+      if (error || !data?.length) {
+        setComentariosNaoVistos((prev) => ({ ...prev, [acaoId]: 0 }));
+        return;
+      }
+      const toMark = data.filter((c) => isComentarioNaoVisto(c, viewer));
+      if (toMark.length === 0) {
+        setComentariosNaoVistos((prev) => ({ ...prev, [acaoId]: 0 }));
+        return;
+      }
+      await Promise.all(
+        toMark.map((c) => {
+          const visto = parseVistoPor(c.visto_por);
+          if (visto.includes(viewer)) return Promise.resolve();
+          return supabase
+            .from("comentarios_acoes")
+            .update({ visto_por: [...visto, viewer] })
+            .eq("id", c.id);
+        })
+      );
+      setComentariosNaoVistos((prev) => ({ ...prev, [acaoId]: 0 }));
+    },
+    []
+  );
 
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
@@ -831,7 +922,8 @@ export function DashboardPage() {
         };
       });
     setPendingActions(items);
-  }, []);
+    await loadComentariosNaoVistosCount(items.map((i) => i.id));
+  }, [loadComentariosNaoVistosCount]);
 
   const loadComentarios = useCallback(async (acaoId) => {
     if (!supabase || !acaoId) {
@@ -861,6 +953,7 @@ export function DashboardPage() {
     setComentariosError(null);
     setComentariosList([]);
     loadComentarios(item.id);
+    markComentariosVistos(item.id);
   };
 
   const closeCommentsModal = () => {
@@ -1256,6 +1349,41 @@ export function DashboardPage() {
     border: "0.5px solid #e8ecf0",
     padding: isMobile ? "12px 12px" : "10px 12px",
     fontFamily: "Inter, sans-serif",
+    position: "relative",
+  };
+
+  const renderComentariosNaoVistosBadge = (acaoId) => {
+    const n = comentariosNaoVistos[acaoId] ?? 0;
+    if (!n) return null;
+    const label = n === 1 ? "1 comentário não visto" : `${n} comentários não vistos`;
+    return (
+      <span
+        aria-label={label}
+        title={label}
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          minWidth: 20,
+          height: 20,
+          padding: "0 6px",
+          borderRadius: 999,
+          background: C.primary,
+          color: C.white,
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: "Inter, sans-serif",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          lineHeight: 1,
+          zIndex: 1,
+          boxSizing: "border-box",
+        }}
+      >
+        {n > 99 ? "99+" : n}
+      </span>
+    );
   };
   const pendingRowStyle = isMobile
     ? { ...pendingRowBase, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10 }
@@ -2605,8 +2733,10 @@ export function DashboardPage() {
                           gap: 12,
                           lineHeight: 1.45,
                           fontFamily: "Inter, sans-serif",
+                          position: "relative",
                         }}
                       >
+                        {renderComentariosNaoVistosBadge(item.id)}
                         <ResponsavelAvatar nome={resp} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <button
@@ -2653,6 +2783,7 @@ export function DashboardPage() {
                 <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                   {mainPendingActions.map((item) => (
                     <li key={`${item.slug}-${item.id}`} style={pendingRowStyle}>
+                      {renderComentariosNaoVistosBadge(item.id)}
                       {isMobile ? (
                         <>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -3091,6 +3222,7 @@ export function DashboardPage() {
                 <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
                   {sistemaPendingActions.map((item) => (
                     <li key={`sistema-${item.id}`} style={sistemaRowStyle}>
+                      {renderComentariosNaoVistosBadge(item.id)}
                       {isMobile ? (
                         <>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
