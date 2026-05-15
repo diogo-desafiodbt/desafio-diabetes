@@ -226,13 +226,6 @@ function currentMesYYYYMM() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function prevMesYYYYMM(mesYYYYMM) {
-  const [y, m] = mesYYYYMM.split("-").map(Number);
-  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
-  const d = new Date(y, m - 2, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 function mesLabelChart(mesYYYYMM) {
   const [y, mo] = String(mesYYYYMM).split("-").map(Number);
   if (!y || !mo) return "—";
@@ -254,23 +247,6 @@ function kpiBarColor(pct) {
   if (pct >= 100) return "#22c55e";
   if (pct >= 70) return "#eab308";
   return "#ef4444";
-}
-
-function variationBadgeParts(prevVal, currVal) {
-  const p = Number(prevVal);
-  const c = Number(currVal);
-  if (!Number.isFinite(c)) return { label: "Sem dados", bg: "#f1f5f9", color: "#64748b" };
-  if (!Number.isFinite(p) || p === 0) {
-    if (p === 0 && c !== 0) return { label: "Novo", bg: "#e0e7ff", color: "#3730a3" };
-    return { label: "Sem dados", bg: "#f1f5f9", color: "#64748b" };
-  }
-  const v = ((c - p) / Math.abs(p)) * 100;
-  const sign = v >= 0 ? "+" : "";
-  return {
-    label: `${sign}${v.toFixed(1)}%`,
-    bg: v >= 0 ? "#dcfce7" : "#fee2e2",
-    color: v >= 0 ? "#166534" : "#991b1b",
-  };
 }
 
 function formatMoneyBRL(n) {
@@ -816,7 +792,6 @@ export function DashboardPage() {
   const [metaResponsavel, setMetaResponsavel] = useState("");
 
   const [kpiMesAtualRow, setKpiMesAtualRow] = useState(null);
-  const [kpiMesAnteriorRow, setKpiMesAnteriorRow] = useState(null);
   const [kpisChart6, setKpisChart6] = useState([]);
 
   const [kpiFormMes, setKpiFormMes] = useState(() => currentMesYYYYMM());
@@ -944,7 +919,6 @@ export function DashboardPage() {
     setLoading(true);
     try {
       const mesRef = currentMesYYYYMM();
-      const mesPrevStr = prevMesYYYYMM(mesRef);
 
       const funnelEntriesPromise = Promise.all(
         Object.entries(FUNNEL_FORMS).map(async ([slug, cfg]) => {
@@ -959,12 +933,9 @@ export function DashboardPage() {
         })
       );
 
-      const [entries, curKpi, prevKpi, sixKpi] = await Promise.all([
+      const [entries, curKpi, sixKpi] = await Promise.all([
         funnelEntriesPromise,
         supabase.from("kpis_mensais").select("*").eq("mes", mesRef).maybeSingle(),
-        mesPrevStr
-          ? supabase.from("kpis_mensais").select("*").eq("mes", mesPrevStr).maybeSingle()
-          : Promise.resolve({ data: null, error: null }),
         supabase.from("kpis_mensais").select("*").order("mes", { ascending: false }).limit(6),
       ]);
 
@@ -972,8 +943,6 @@ export function DashboardPage() {
 
       if (!curKpi.error) setKpiMesAtualRow(normalizeKpiMensaisRow(curKpi.data ?? null));
       else setKpiMesAtualRow(null);
-      if (!prevKpi.error) setKpiMesAnteriorRow(normalizeKpiMensaisRow(prevKpi.data ?? null));
-      else setKpiMesAnteriorRow(null);
       if (!sixKpi.error && Array.isArray(sixKpi.data)) {
         setKpisChart6(
           [...sixKpi.data]
