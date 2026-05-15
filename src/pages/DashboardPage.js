@@ -343,6 +343,77 @@ function kpiFormFieldToDb(val) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Unifica colunas legadas com os nomes atuais de kpis_mensais. */
+function normalizeKpiMensaisRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    suplementos_vendidos: row.suplementos_vendidos ?? row.suplementos ?? null,
+    livros_vendidos: row.livros_vendidos ?? row.livros ?? null,
+    receita_app: row.receita_app ?? row.downloads_app ?? row.downloads ?? null,
+    meta_receita_app: row.meta_receita_app ?? row.meta_downloads ?? null,
+  };
+}
+
+const KPI_FIELD_LEGACY = {
+  suplementos_vendidos: ["suplementos"],
+  livros_vendidos: ["livros"],
+  receita_app: ["downloads_app", "downloads"],
+  meta_receita_app: ["meta_downloads"],
+};
+
+function getKpiField(row, key) {
+  if (!row || !key) return null;
+  const primary = row[key];
+  if (primary != null && primary !== "") return primary;
+  const legacy = KPI_FIELD_LEGACY[key];
+  if (!legacy) return null;
+  for (const alt of legacy) {
+    const v = row[alt];
+    if (v != null && v !== "") return v;
+  }
+  return null;
+}
+
+const KPI_RECEITA_PART_KEYS = ["receita_suplemento", "receita_livro", "receita_app", "receita_adsense"];
+const KPI_META_RECEITA_PART_KEYS = [
+  "meta_receita_suplemento",
+  "meta_receita_livro",
+  "meta_receita_app",
+  "meta_receita_adsense",
+];
+
+function sumKpiNumericParts(row, keys) {
+  if (!row) return null;
+  let sum = 0;
+  let has = false;
+  keys.forEach((k) => {
+    const n = Number(getKpiField(row, k) ?? row[k]);
+    if (Number.isFinite(n)) {
+      sum += n;
+      has = true;
+    }
+  });
+  return has ? sum : null;
+}
+
+/** Receita total: faturamento ou soma das receitas do bloco Financeiro. */
+function kpiReceitaTotal(row) {
+  const normalized = normalizeKpiMensaisRow(row);
+  if (!normalized) return null;
+  const fat = Number(getKpiField(normalized, "faturamento"));
+  if (Number.isFinite(fat)) return fat;
+  return sumKpiNumericParts(normalized, KPI_RECEITA_PART_KEYS);
+}
+
+function kpiMetaReceitaTotal(row) {
+  const normalized = normalizeKpiMensaisRow(row);
+  if (!normalized) return null;
+  const meta = Number(getKpiField(normalized, "meta_faturamento"));
+  if (Number.isFinite(meta)) return meta;
+  return sumKpiNumericParts(normalized, KPI_META_RECEITA_PART_KEYS);
+}
+
 function IconGrid() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -833,12 +904,17 @@ export function DashboardPage() {
 
       setRows(Object.fromEntries(entries));
 
-      if (!curKpi.error) setKpiMesAtualRow(curKpi.data ?? null);
+      if (!curKpi.error) setKpiMesAtualRow(normalizeKpiMensaisRow(curKpi.data ?? null));
       else setKpiMesAtualRow(null);
-      if (!prevKpi.error) setKpiMesAnteriorRow(prevKpi.data ?? null);
+      if (!prevKpi.error) setKpiMesAnteriorRow(normalizeKpiMensaisRow(prevKpi.data ?? null));
       else setKpiMesAnteriorRow(null);
       if (!sixKpi.error && Array.isArray(sixKpi.data)) {
-        setKpisChart6([...sixKpi.data].sort((a, b) => String(a.mes).localeCompare(String(b.mes))));
+        setKpisChart6(
+          [...sixKpi.data]
+            .map((r) => normalizeKpiMensaisRow(r))
+            .filter(Boolean)
+            .sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+        );
       } else {
         setKpisChart6([]);
       }
@@ -989,28 +1065,46 @@ export function DashboardPage() {
     return order.filter((k) => buckets[k]?.length).map((k) => [k, buckets[k]]);
   }, [metasList]);
 
-  const faturamentoChartMax = useMemo(() => {
-    const nums = kpisChart6.map((r) => Number(r.faturamento)).filter((n) => Number.isFinite(n));
+  const receitaChartSeries = useMemo(
+    () =>
+      kpisChart6.map((row) => ({
+        mes: row.mes,
+        value: kpiReceitaTotal(row),
+        meta: kpiMetaReceitaTotal(row),
+      })),
+    [kpisChart6]
+  );
+
+  const receitaChartMax = useMemo(() => {
+    const nums = receitaChartSeries.map((p) => p.value).filter((n) => Number.isFinite(n));
     const m = nums.length ? Math.max(...nums) : 0;
     return m > 0 ? m : 1;
-  }, [kpisChart6]);
+  }, [receitaChartSeries]);
 
   const kpiExecItems = useMemo(() => {
     const r = kpiMesAtualRow;
     const p = kpiMesAnteriorRow;
     const item = (label, keyCurr, keyMeta, kind) => {
-      const pct = r ? pctMeta(r[keyCurr], r[keyMeta]) : null;
+      const currVal = getKpiField(r, keyCurr);
+      const metaVal = getKpiField(r, keyMeta);
+      const prevVal = getKpiField(p, keyCurr);
+      const pct = r ? pctMeta(currVal, metaVal) : null;
       const display =
-        !r || r[keyCurr] == null
-          ? "—"
-          : kind === "money"
-            ? formatMoneyBRL(r[keyCurr])
-            : fmtCell(r[keyCurr]);
-      const varBadge = variationBadgeParts(p ? p[keyCurr] : null, r ? r[keyCurr] : null);
+        currVal == null ? "—" : kind === "money" ? formatMoneyBRL(currVal) : fmtCell(currVal);
+      const varBadge = variationBadgeParts(prevVal, currVal);
       return { label, display, pct, varBadge };
     };
+    const receitaCurr = kpiReceitaTotal(r);
+    const receitaMeta = kpiMetaReceitaTotal(r);
+    const receitaPrev = kpiReceitaTotal(p);
+    const receitaCard = {
+      label: "Receita Total",
+      display: receitaCurr == null ? "—" : formatMoneyBRL(receitaCurr),
+      pct: r ? pctMeta(receitaCurr, receitaMeta) : null,
+      varBadge: variationBadgeParts(receitaPrev, receitaCurr),
+    };
     return [
-      item("Receita Total", "faturamento", "meta_faturamento", "money"),
+      receitaCard,
       item("Suplementos Vendidos", "suplementos_vendidos", "meta_suplementos", "num"),
       item("Primeiro Passo Vendidos", "livros_vendidos", "meta_livros", "num"),
       item("Compradores Suplemento", "compradores_total", "meta_compradores", "num"),
@@ -2136,9 +2230,14 @@ export function DashboardPage() {
                     fontFamily: "Inter, sans-serif",
                   }}
                 >
-                  <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: C.dark }}>Faturamento mensal (últimos 6 meses)</h2>
-                  {kpisChart6.length === 0 ? (
-                    <p style={{ color: "#94a3b8", fontSize: 14, margin: 0 }}>Sem dados de faturamento.</p>
+                  <h2 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700, color: C.dark }}>
+                    Receita mensal (últimos 6 meses)
+                  </h2>
+                  <p style={{ margin: "0 0 12px", fontSize: 12, color: "#94a3b8", lineHeight: 1.45 }}>
+                    Faturamento total ou soma de receitas (suplemento, livro, app e AdSense) cadastradas na aba Metas.
+                  </p>
+                  {receitaChartSeries.length === 0 || receitaChartSeries.every((p) => p.value == null) ? (
+                    <p style={{ color: "#94a3b8", fontSize: 14, margin: 0 }}>Sem dados de receita.</p>
                   ) : (
                     <div
                       style={{
@@ -2150,12 +2249,16 @@ export function DashboardPage() {
                         paddingTop: 8,
                       }}
                     >
-                      {kpisChart6.map((row) => {
-                        const v = Number(row.faturamento);
-                        const hPct = Number.isFinite(v) && faturamentoChartMax > 0 ? (v / faturamentoChartMax) * 100 : 0;
+                      {receitaChartSeries.map((point) => {
+                        const v = point.value;
+                        const hPct = Number.isFinite(v) && receitaChartMax > 0 ? (v / receitaChartMax) * 100 : 0;
+                        const metaLabel =
+                          point.meta != null && Number.isFinite(point.meta)
+                            ? ` · Meta ${formatMoneyBRL(point.meta)}`
+                            : "";
                         return (
                           <div
-                            key={row.mes}
+                            key={point.mes}
                             style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 0 }}
                           >
                             <div
@@ -2169,13 +2272,14 @@ export function DashboardPage() {
                               }}
                             >
                               <div
-                                title={`${formatMoneyBRL(v)}`}
+                                title={v == null ? "Sem dado" : `${formatMoneyBRL(v)}${metaLabel}`}
                                 style={{
                                   width: "72%",
                                   height: `${Math.max(4, hPct)}%`,
                                   background: C.primary,
                                   borderRadius: "6px 6px 2px 2px",
-                                  minHeight: 4,
+                                  minHeight: v == null ? 0 : 4,
+                                  opacity: v == null ? 0.25 : 1,
                                   transition: "height 0.35s ease",
                                 }}
                               />
@@ -2190,13 +2294,14 @@ export function DashboardPage() {
                                 wordBreak: "break-word",
                               }}
                             >
-                              {mesLabelChart(row.mes)}
+                              {mesLabelChart(point.mes)}
                             </span>
                           </div>
                         );
                       })}
                     </div>
                   )}
+
                 </section>
 
                 <div
