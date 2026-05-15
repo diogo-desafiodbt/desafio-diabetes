@@ -276,6 +276,32 @@ function mesLabelChart(mesYYYYMM) {
   return s.replace(/\./g, "").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+function mesLabelLegivel(mesYYYYMM) {
+  const [y, mo] = String(mesYYYYMM).split("-").map(Number);
+  if (!y || !mo) return String(mesYYYYMM);
+  const d = new Date(y, mo - 1, 1);
+  const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return label.replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** Últimos `count` meses (YYYY-MM) terminando em `mesYYYYMM` (inclusive). */
+function mesesWindowEndingAt(mesYYYYMM, count = 6) {
+  const [y, mo] = String(mesYYYYMM).split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(mo)) return [];
+  let year = y;
+  let month = mo;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.unshift(`${year}-${String(month).padStart(2, "0")}`);
+    month -= 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return out;
+}
+
 function pctMeta(atual, meta) {
   const a = Number(atual);
   const m = Number(meta);
@@ -835,6 +861,9 @@ export function DashboardPage() {
 
   const [kpiMesAtualRow, setKpiMesAtualRow] = useState(null);
   const [kpisChart6, setKpisChart6] = useState([]);
+  const [kpiMesesDisponiveis, setKpiMesesDisponiveis] = useState([]);
+  const [kpiMesSelecionado, setKpiMesSelecionado] = useState("");
+  const kpiMesSelecionadoRef = useRef(kpiMesSelecionado);
 
   const [kpiFormMes, setKpiFormMes] = useState(() => currentMesYYYYMM());
   const [kpiForm, setKpiForm] = useState(emptyKpiForm);
@@ -916,6 +945,10 @@ export function DashboardPage() {
     },
     []
   );
+
+  useEffect(() => {
+    kpiMesSelecionadoRef.current = kpiMesSelecionado;
+  }, [kpiMesSelecionado]);
 
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
@@ -1085,6 +1118,29 @@ export function DashboardPage() {
     return withPrazoColor.filter((item) => (item.responsavel ?? "") === vencendoResponsavel);
   }, [pendingActions, vencendoResponsavel]);
 
+  const loadKpiDashboardForMes = useCallback(async (mesYYYYMM) => {
+    if (!supabase || !mesYYYYMM) {
+      setKpiMesAtualRow(null);
+      setKpisChart6([]);
+      return;
+    }
+    const windowMeses = mesesWindowEndingAt(mesYYYYMM, 6);
+    const [curKpi, chartRes] = await Promise.all([
+      supabase.from("kpis_mensais").select("*").eq("mes", mesYYYYMM).maybeSingle(),
+      supabase.from("kpis_mensais").select("*").in("mes", windowMeses),
+    ]);
+    if (!curKpi.error) setKpiMesAtualRow(normalizeKpiMensaisRow(curKpi.data ?? null));
+    else setKpiMesAtualRow(null);
+    if (!chartRes.error && Array.isArray(chartRes.data)) {
+      const byMes = Object.fromEntries(
+        chartRes.data.map((r) => [String(r.mes), normalizeKpiMensaisRow(r)]).filter(([k]) => k)
+      );
+      setKpisChart6(windowMeses.map((mes) => byMes[mes] ?? normalizeKpiMensaisRow({ mes })));
+    } else {
+      setKpisChart6(windowMeses.map((mes) => normalizeKpiMensaisRow({ mes })));
+    }
+  }, []);
+
   const load = useCallback(async () => {
     if (!supabase) {
       setLoading(false);
@@ -1093,8 +1149,6 @@ export function DashboardPage() {
     setErr(null);
     setLoading(true);
     try {
-      const mesRef = currentMesYYYYMM();
-
       const funnelEntriesPromise = Promise.all(
         Object.entries(FUNNEL_FORMS).map(async ([slug, cfg]) => {
           const { data, error } = await supabase
@@ -1108,24 +1162,23 @@ export function DashboardPage() {
         })
       );
 
-      const [entries, curKpi, sixKpi] = await Promise.all([
+      const [entries, mesesRes] = await Promise.all([
         funnelEntriesPromise,
-        supabase.from("kpis_mensais").select("*").eq("mes", mesRef).maybeSingle(),
-        supabase.from("kpis_mensais").select("*").order("mes", { ascending: false }).limit(6),
+        supabase.from("kpis_mensais").select("mes").order("mes", { ascending: false }),
       ]);
 
       setRows(Object.fromEntries(entries));
 
-      if (!curKpi.error) setKpiMesAtualRow(normalizeKpiMensaisRow(curKpi.data ?? null));
-      else setKpiMesAtualRow(null);
-      if (!sixKpi.error && Array.isArray(sixKpi.data)) {
-        setKpisChart6(
-          [...sixKpi.data]
-            .map((r) => normalizeKpiMensaisRow(r))
-            .filter(Boolean)
-            .sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
-        );
-      } else {
+      const meses = [...new Set((mesesRes.data ?? []).map((r) => r.mes).filter(Boolean))].sort((a, b) =>
+        String(b).localeCompare(String(a))
+      );
+      setKpiMesesDisponiveis(meses);
+      const prevMes = kpiMesSelecionadoRef.current;
+      const pick = meses.length === 0 ? "" : meses.includes(prevMes) ? prevMes : meses[0];
+      setKpiMesSelecionado(pick);
+      if (pick) await loadKpiDashboardForMes(pick);
+      else {
+        setKpiMesAtualRow(null);
         setKpisChart6([]);
       }
     } catch (e) {
@@ -1133,7 +1186,12 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadKpiDashboardForMes]);
+
+  const handleKpiMesSelecionadoChange = (mesYYYYMM) => {
+    setKpiMesSelecionado(mesYYYYMM);
+    loadKpiDashboardForMes(mesYYYYMM);
+  };
 
   const loadKpiFormRow = useCallback(async () => {
     if (!supabase || !kpiFormMes) return;
@@ -2259,6 +2317,35 @@ export function DashboardPage() {
                         ? "Metas"
                         : "Melhorias"}
                 </h1>
+                {sidebarTab === "dashboard" && (
+                  <select
+                    value={kpiMesSelecionado}
+                    onChange={(e) => handleKpiMesSelecionadoChange(e.target.value)}
+                    disabled={kpiMesesDisponiveis.length === 0}
+                    aria-label="Mês dos KPIs"
+                    style={{
+                      borderRadius: 8,
+                      border: "1px solid #e8ecf0",
+                      padding: "6px 12px",
+                      fontSize: 13,
+                      color: C.dark,
+                      background: C.white,
+                      fontFamily: "Inter, sans-serif",
+                      cursor: kpiMesesDisponiveis.length === 0 ? "not-allowed" : "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {kpiMesesDisponiveis.length === 0 ? (
+                      <option value="">Sem meses cadastrados</option>
+                    ) : (
+                      kpiMesesDisponiveis.map((mes) => (
+                        <option key={mes} value={mes}>
+                          {mesLabelLegivel(mes)}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
                 <span
                   style={{
                     width: 8,
