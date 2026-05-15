@@ -58,6 +58,16 @@
  * alter table public.comentarios_acoes
  *   add column if not exists visto_por text[] not null default '{}';
  *
+ * create table if not exists public.checklist_acoes (
+ *   id uuid primary key default gen_random_uuid(),
+ *   acao_id uuid not null references public.acoes (id) on delete cascade,
+ *   texto text not null,
+ *   responsavel text not null,
+ *   concluido boolean not null default false,
+ *   created_at timestamptz not null default now()
+ * );
+ * create index if not exists checklist_acoes_acao_id_idx on public.checklist_acoes (acao_id);
+ *
  * ------------------------------------------------------------------
  */
 
@@ -103,6 +113,8 @@ const navSectionLabel = {
   fontFamily: "Inter, sans-serif",
   fontWeight: 600,
 };
+
+const CHECKLIST_RESPONSAVEIS = ["Diogo", "Turí", "Pedro"];
 
 const GERAL_METRIC_OPTIONS = [
   { key: "views", label: "Views" },
@@ -838,6 +850,13 @@ export function DashboardPage() {
   const [comentarioSubmitting, setComentarioSubmitting] = useState(false);
   const [comentariosNaoVistos, setComentariosNaoVistos] = useState({});
 
+  const [checklistList, setChecklistList] = useState([]);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistError, setChecklistError] = useState(null);
+  const [novoChecklistTexto, setNovoChecklistTexto] = useState("");
+  const [novoChecklistResponsavel, setNovoChecklistResponsavel] = useState("");
+  const [checklistSubmitting, setChecklistSubmitting] = useState(false);
+
   const loadComentariosNaoVistosCount = useCallback(async (acaoIds) => {
     if (!supabase || !acaoIds?.length) {
       setComentariosNaoVistos({});
@@ -946,12 +965,71 @@ export function DashboardPage() {
     setComentariosList(data ?? []);
   }, []);
 
+  const loadChecklist = useCallback(async (acaoId) => {
+    if (!supabase || !acaoId) {
+      setChecklistList([]);
+      return;
+    }
+    setChecklistLoading(true);
+    setChecklistError(null);
+    const { data, error } = await supabase
+      .from("checklist_acoes")
+      .select("id, texto, responsavel, concluido, created_at")
+      .eq("acao_id", acaoId)
+      .order("created_at", { ascending: true });
+    setChecklistLoading(false);
+    if (error) {
+      setChecklistError(error.message ?? "Erro ao carregar checklist.");
+      setChecklistList([]);
+      return;
+    }
+    setChecklistList(data ?? []);
+  }, []);
+
+  const addChecklistItem = async () => {
+    if (!supabase || !commentsModal?.id) return;
+    const texto = novoChecklistTexto.trim();
+    if (!texto || !novoChecklistResponsavel) return;
+    setChecklistSubmitting(true);
+    setChecklistError(null);
+    const { error } = await supabase.from("checklist_acoes").insert([
+      {
+        acao_id: commentsModal.id,
+        texto,
+        responsavel: novoChecklistResponsavel,
+        concluido: false,
+      },
+    ]);
+    setChecklistSubmitting(false);
+    if (error) {
+      setChecklistError(error.message ?? "Erro ao adicionar item.");
+      return;
+    }
+    setNovoChecklistTexto("");
+    await loadChecklist(commentsModal.id);
+  };
+
+  const toggleChecklistItem = async (itemId, checked) => {
+    if (!supabase || !itemId) return;
+    setChecklistList((prev) => prev.map((i) => (i.id === itemId ? { ...i, concluido: checked } : i)));
+    const { error } = await supabase.from("checklist_acoes").update({ concluido: checked }).eq("id", itemId);
+    if (error) {
+      setChecklistError(error.message ?? "Erro ao atualizar item.");
+      if (commentsModal?.id) loadChecklist(commentsModal.id);
+    }
+  };
+
   const openCommentsModal = (item) => {
     if (!item?.id) return;
     setCommentsModal({ id: item.id, titulo: item.texto ?? "Tarefa" });
     setNovoComentarioTexto("");
     setComentariosError(null);
     setComentariosList([]);
+    setChecklistList([]);
+    setChecklistError(null);
+    setNovoChecklistTexto("");
+    setNovoChecklistResponsavel("");
+    loadChecklist(item.id);
     loadComentarios(item.id);
     markComentariosVistos(item.id);
   };
@@ -961,6 +1039,10 @@ export function DashboardPage() {
     setComentariosList([]);
     setNovoComentarioTexto("");
     setComentariosError(null);
+    setChecklistList([]);
+    setChecklistError(null);
+    setNovoChecklistTexto("");
+    setNovoChecklistResponsavel("");
   };
 
   const submitComentario = async () => {
@@ -3430,6 +3512,137 @@ export function DashboardPage() {
                 WebkitOverflowScrolling: "touch",
               }}
             >
+              <section style={{ marginBottom: 20 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    marginBottom: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.dark }}>Checklist</h3>
+                  <span style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>
+                    {checklistLoading
+                      ? "Carregando…"
+                      : `${checklistList.filter((i) => i.concluido).length}/${checklistList.length} concluídos`}
+                  </span>
+                </div>
+                {checklistError && (
+                  <p style={{ margin: "0 0 10px", fontSize: 13, color: "#b91c1c" }}>{checklistError}</p>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: isMobile ? "column" : "row",
+                    gap: 8,
+                    alignItems: isMobile ? "stretch" : "flex-end",
+                    marginBottom: 14,
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={novoChecklistTexto}
+                    onChange={(e) => setNovoChecklistTexto(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && novoChecklistTexto.trim() && novoChecklistResponsavel && addChecklistItem()
+                    }
+                    placeholder="Novo item do checklist…"
+                    style={{ ...inputFieldStyle, flex: 1, minWidth: 0 }}
+                  />
+                  <select
+                    value={novoChecklistResponsavel}
+                    onChange={(e) => setNovoChecklistResponsavel(e.target.value)}
+                    style={{ ...selectFieldStyle, minWidth: isMobile ? undefined : 120, flexShrink: 0 }}
+                  >
+                    <option value="">Responsável</option>
+                    {CHECKLIST_RESPONSAVEIS.map((nome) => (
+                      <option key={nome} value={nome}>
+                        {nome}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={checklistSubmitting || !novoChecklistTexto.trim() || !novoChecklistResponsavel}
+                    onClick={addChecklistItem}
+                    style={{
+                      background: C.primary,
+                      color: C.white,
+                      border: "none",
+                      padding: "10px 16px",
+                      borderRadius: 8,
+                      cursor:
+                        checklistSubmitting || !novoChecklistTexto.trim() || !novoChecklistResponsavel
+                          ? "not-allowed"
+                          : "pointer",
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      opacity: checklistSubmitting || !novoChecklistTexto.trim() || !novoChecklistResponsavel ? 0.55 : 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {checklistSubmitting ? "…" : "Adicionar"}
+                  </button>
+                </div>
+                {!checklistLoading && checklistList.length === 0 && (
+                  <p style={{ margin: 0, fontSize: 13, color: "#94a3b8" }}>Nenhum item no checklist.</p>
+                )}
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {checklistList.map((chk) => (
+                    <li
+                      key={chk.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 0",
+                        borderBottom: "0.5px solid #e8ecf0",
+                        opacity: chk.concluido ? 0.55 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!chk.concluido}
+                        onChange={(e) => toggleChecklistItem(chk.id, e.target.checked)}
+                        style={{ width: 18, height: 18, cursor: "pointer", accentColor: C.primary, flexShrink: 0 }}
+                        aria-label={`Marcar item: ${chk.texto}`}
+                      />
+                      <span
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 14,
+                          color: C.dark,
+                          lineHeight: 1.4,
+                          wordBreak: "break-word",
+                          textDecoration: chk.concluido ? "line-through" : "none",
+                        }}
+                      >
+                        {chk.texto}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "3px 8px",
+                          borderRadius: 20,
+                          background: "#f1f5f9",
+                          color: C.dark,
+                          flexShrink: 0,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {chk.responsavel ?? "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <div style={{ borderTop: "1px solid #e8ecf0", paddingTop: 16 }}>
               {comentariosLoading && (
                 <p style={{ margin: 0, fontSize: 14, color: "#64748b" }}>Carregando comentários…</p>
               )}
@@ -3458,6 +3671,7 @@ export function DashboardPage() {
                   </p>
                 </div>
               ))}
+              </div>
             </div>
             <div
               style={{
