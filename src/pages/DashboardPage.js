@@ -26,6 +26,7 @@
  *   -- Vendas
  *   suplementos_vendidos numeric, meta_suplementos numeric,
  *   compradores_total numeric, meta_compradores numeric,
+ *   compradores_novos numeric, meta_compradores_novos numeric,
  *   taxa_recompra numeric, meta_taxa_recompra numeric,
  *   livros_vendidos numeric, meta_livros numeric,
  *   vendas_pagas_livro numeric, meta_vendas_pagas_livro numeric,
@@ -35,7 +36,6 @@
  *   receita_livro numeric, meta_receita_livro numeric,
  *   receita_app numeric, meta_receita_app numeric,
  *   receita_adsense numeric, meta_receita_adsense numeric,
- *   pro_labore numeric, meta_pro_labore numeric,
  *   margem_operacional numeric, meta_margem_operacional numeric,
  *   -- Tráfego pago
  *   orcamento_pago numeric, meta_orcamento_pago numeric,
@@ -340,6 +340,7 @@ const KPI_FORM_SECTIONS = [
     pairs: [
       { key: "suplementos_vendidos", metaKey: "meta_suplementos", label: "Suplementos Vendidos", metaLabel: "Meta Suplementos", kind: "num" },
       { key: "compradores_total", metaKey: "meta_compradores", label: "Compradores Total", metaLabel: "Meta Compradores", kind: "num" },
+      { key: "compradores_novos", metaKey: "meta_compradores_novos", label: "Compradores Novos", metaLabel: "Meta Compradores Novos", kind: "num" },
       { key: "taxa_recompra", metaKey: "meta_taxa_recompra", label: "Taxa de Recompra (%)", metaLabel: "Meta Taxa Recompra (%)", kind: "pct" },
       { key: "livros_vendidos", metaKey: "meta_livros", label: "Livros (Primeiro Passo) Vendidos", metaLabel: "Meta Livros", kind: "num" },
       { key: "vendas_pagas_livro", metaKey: "meta_vendas_pagas_livro", label: "Vendas Pagas Livro", metaLabel: "Meta Vendas Pagas Livro", kind: "num" },
@@ -354,7 +355,6 @@ const KPI_FORM_SECTIONS = [
       { key: "receita_livro", metaKey: "meta_receita_livro", label: "Receita Livro (R$)", metaLabel: "Meta Receita Livro (R$)", kind: "money" },
       { key: "receita_app", metaKey: "meta_receita_app", label: "Receita App (R$)", metaLabel: "Meta Receita App (R$)", kind: "money" },
       { key: "receita_adsense", metaKey: "meta_receita_adsense", label: "Receita AdSense (R$)", metaLabel: "Meta Receita AdSense (R$)", kind: "money" },
-      { key: "pro_labore", metaKey: "meta_pro_labore", label: "Pró-labore (R$)", metaLabel: "Meta Pró-labore (R$)", kind: "money" },
       { key: "margem_operacional", metaKey: "meta_margem_operacional", label: "Margem Operacional (%)", metaLabel: "Meta Margem Operacional (%)", kind: "pct" },
     ],
   },
@@ -486,7 +486,6 @@ const KPI_ACCORDION_DEFS = [
       { label: "Receita Livro", key: "receita_livro", metaKey: "meta_receita_livro", kind: "money" },
       { label: "Receita App", key: "receita_app", metaKey: "meta_receita_app", kind: "money" },
       { label: "Receita AdSense", key: "receita_adsense", metaKey: "meta_receita_adsense", kind: "money" },
-      { label: "Pró-labore", key: "pro_labore", metaKey: "meta_pro_labore", kind: "money" },
       { label: "Margem Operacional (%)", key: "margem_operacional", metaKey: "meta_margem_operacional", kind: "pct" },
     ],
   },
@@ -496,6 +495,7 @@ const KPI_ACCORDION_DEFS = [
     primary: { key: "compradores_total", metaKey: "meta_compradores", kind: "num" },
     details: [
       { label: "Suplementos Vendidos", key: "suplementos_vendidos", metaKey: "meta_suplementos", kind: "num" },
+      { label: "Compradores Novos", key: "compradores_novos", metaKey: "meta_compradores_novos", kind: "num" },
       { label: "Taxa de Recompra (%)", key: "taxa_recompra", metaKey: "meta_taxa_recompra", kind: "pct" },
       { label: "Receita Suplemento", key: "receita_suplemento", metaKey: "meta_receita_suplemento", kind: "money" },
     ],
