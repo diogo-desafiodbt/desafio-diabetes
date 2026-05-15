@@ -73,6 +73,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { FUNNEL_FORMS, FUNNEL_SLUGS } from "../data/funnelForms";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
@@ -284,6 +294,19 @@ function mesLabelLegivel(mesYYYYMM) {
   return label.replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** Rótulo curto para eixo X dos modais executivos (ex.: Jun/26). */
+function mesLabelExecChart(mesYYYYMM) {
+  const [y, mo] = String(mesYYYYMM).split("-").map(Number);
+  if (!y || !mo) return "—";
+  const d = new Date(y, mo - 1, 1);
+  const mon = d
+    .toLocaleDateString("pt-BR", { month: "short" })
+    .replace(/\./g, "")
+    .replace(/^\w/, (c) => c.toUpperCase());
+  const yy = String(y).slice(-2);
+  return `${mon}/${yy}`;
+}
+
 /** Últimos `count` meses (YYYY-MM) terminando em `mesYYYYMM` (inclusive). */
 function mesesWindowEndingAt(mesYYYYMM, count = 6) {
   const [y, mo] = String(mesYYYYMM).split("-").map(Number);
@@ -476,49 +499,97 @@ function formatKpiMetaLine(meta, kind) {
   return `Meta: ${fmtCell(n)}`;
 }
 
-const KPI_ACCORDION_DEFS = [
+const KPI_EXEC_LINE_COLORS = ["#FF0028", "#0D1B3E", "#10b981", "#6366f1", "#f59e0b", "#ec4899"];
+
+function formatKpiExecChartValue(val, kind) {
+  if (val == null || val === "") return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "—";
+  if (kind === "money") return formatMoneyBRL(n);
+  if (kind === "pct") return `${n.toLocaleString("pt-BR")}%`;
+  return Math.round(n).toLocaleString("pt-BR");
+}
+
+function KpiExecChartTooltip({ active, payload, label, metrics }) {
+  if (!active || !payload?.length) return null;
+  const datum = payload[0]?.payload ?? {};
+  return (
+    <div
+      style={{
+        background: "#FFFFFF",
+        border: "1px solid #e8ecf0",
+        borderRadius: 8,
+        padding: "12px 14px",
+        boxShadow: "0 8px 24px rgba(13,27,62,0.12)",
+        fontFamily: "Inter, sans-serif",
+        minWidth: 200,
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 10, color: "#0D1B3E", fontSize: 13 }}>{label}</div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {metrics.map((m) => (
+          <li
+            key={m.key}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 16,
+              fontSize: 12,
+              color: "#475569",
+              padding: "4px 0",
+              borderBottom: "1px solid #f1f5f9",
+            }}
+          >
+            <span>{m.label}</span>
+            <span style={{ fontWeight: 600, color: "#0D1B3E" }}>{formatKpiExecChartValue(datum[m.key], m.kind)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Cards executivos do topo: métrica principal + série temporal no modal. */
+const KPI_EXEC_CARD_DEFS = [
   {
     id: "financeiro",
     title: "💰 FINANCEIRO",
     primary: { type: "receita_total" },
-    details: [
-      { label: "Receita Suplemento", key: "receita_suplemento", metaKey: "meta_receita_suplemento", kind: "money" },
-      { label: "Receita Livro", key: "receita_livro", metaKey: "meta_receita_livro", kind: "money" },
-      { label: "Receita App", key: "receita_app", metaKey: "meta_receita_app", kind: "money" },
-      { label: "Receita AdSense", key: "receita_adsense", metaKey: "meta_receita_adsense", kind: "money" },
-      { label: "Margem Operacional (%)", key: "margem_operacional", metaKey: "meta_margem_operacional", kind: "pct" },
+    chartMetrics: [
+      { key: "receita_suplemento", label: "Receita Suplemento", kind: "money" },
+      { key: "receita_livro", label: "Receita Livro", kind: "money" },
+      { key: "receita_app", label: "Receita App", kind: "money" },
+      { key: "receita_adsense", label: "Receita AdSense", kind: "money" },
+      { key: "faturamento", label: "Faturamento", kind: "money" },
     ],
   },
   {
     id: "suplemento",
     title: "💊 SUPLEMENTO",
     primary: { key: "compradores_total", metaKey: "meta_compradores", kind: "num" },
-    details: [
-      { label: "Suplementos Vendidos", key: "suplementos_vendidos", metaKey: "meta_suplementos", kind: "num" },
-      { label: "Compradores Novos", key: "compradores_novos", metaKey: "meta_compradores_novos", kind: "num" },
-      { label: "Taxa de Recompra (%)", key: "taxa_recompra", metaKey: "meta_taxa_recompra", kind: "pct" },
-      { label: "Receita Suplemento", key: "receita_suplemento", metaKey: "meta_receita_suplemento", kind: "money" },
+    chartMetrics: [
+      { key: "compradores_total", label: "Compradores Total", kind: "num" },
+      { key: "compradores_novos", label: "Compradores Novos", kind: "num" },
+      { key: "suplementos_vendidos", label: "Suplementos Vendidos", kind: "num" },
     ],
   },
   {
     id: "primeiro_passo",
     title: "📖 PRIMEIRO PASSO",
     primary: { key: "livros_vendidos", metaKey: "meta_livros", kind: "num" },
-    details: [
-      { label: "Vendas Pagas Livro", key: "vendas_pagas_livro", metaKey: "meta_vendas_pagas_livro", kind: "num" },
-      { label: "CAC Livro (R$)", key: "cac_livro", metaKey: "meta_cac_livro", kind: "money" },
-      { label: "Margem Campanha (%)", key: "margem_campanha", metaKey: "meta_margem_campanha", kind: "pct" },
-      { label: "Receita Livro", key: "receita_livro", metaKey: "meta_receita_livro", kind: "money" },
+    chartMetrics: [
+      { key: "livros_vendidos", label: "Livros Vendidos", kind: "num" },
+      { key: "vendas_pagas_livro", label: "Vendas Pagas Livro", kind: "num" },
     ],
   },
   {
     id: "audiencia",
     title: "📣 AUDIÊNCIA",
     primary: { key: "views_totais", metaKey: "meta_views", kind: "num" },
-    details: [
-      { label: "Inscritos Novos", key: "inscritos_novos", metaKey: "meta_inscritos", kind: "num" },
-      { label: "Clicks Totais", key: "clicks_totais", metaKey: "meta_clicks", kind: "num" },
-      { label: "Click Rate (%)", key: "click_rate", metaKey: "meta_click_rate", kind: "pct" },
+    chartMetrics: [
+      { key: "views_totais", label: "Views Totais", kind: "num" },
+      { key: "inscritos_novos", label: "Inscritos Novos", kind: "num" },
+      { key: "clicks_totais", label: "Clicks Totais", kind: "num" },
     ],
   },
 ];
@@ -869,7 +940,8 @@ export function DashboardPage() {
   const [kpiForm, setKpiForm] = useState(emptyKpiForm);
   const [kpiFormSaving, setKpiFormSaving] = useState(false);
   const [kpiFormFeedback, setKpiFormFeedback] = useState(null);
-  const [expandedKpiCard, setExpandedKpiCard] = useState(null);
+  const [kpiExecModalId, setKpiExecModalId] = useState(null);
+  const [kpisMensaisAllRows, setKpisMensaisAllRows] = useState([]);
 
   const [commentsModal, setCommentsModal] = useState(null);
   const [comentariosList, setComentariosList] = useState([]);
@@ -878,6 +950,8 @@ export function DashboardPage() {
   const [novoComentarioTexto, setNovoComentarioTexto] = useState("");
   const [comentarioSubmitting, setComentarioSubmitting] = useState(false);
   const [comentariosNaoVistos, setComentariosNaoVistos] = useState({});
+  /** Itens de checklist com concluido = false, por acao_id (atualizado em loadPendingActions e ao editar checklist no modal). */
+  const [checklistPendentes, setChecklistPendentes] = useState({});
 
   const [checklistList, setChecklistList] = useState([]);
   const [checklistLoading, setChecklistLoading] = useState(false);
@@ -953,11 +1027,13 @@ export function DashboardPage() {
   const loadPendingActions = useCallback(async () => {
     if (!supabase) {
       setPendingActions([]);
+      setChecklistPendentes({});
       return;
     }
     const { data, error } = await supabase.from("acoes").select("*").eq("concluido", false);
     if (error) {
       setPendingActions([]);
+      setChecklistPendentes({});
       return;
     }
     const items = (data ?? [])
@@ -975,6 +1051,27 @@ export function DashboardPage() {
       });
     setPendingActions(items);
     await loadComentariosNaoVistosCount(items.map((i) => i.id));
+
+    const ids = items.map((i) => i.id).filter(Boolean);
+    if (ids.length === 0) {
+      setChecklistPendentes({});
+    } else {
+      const { data: chkRows, error: chkErr } = await supabase
+        .from("checklist_acoes")
+        .select("acao_id")
+        .eq("concluido", false)
+        .in("acao_id", ids);
+      if (chkErr) {
+        setChecklistPendentes({});
+      } else {
+        const counts = {};
+        (chkRows ?? []).forEach((row) => {
+          const aid = row.acao_id;
+          if (aid) counts[aid] = (counts[aid] ?? 0) + 1;
+        });
+        setChecklistPendentes(counts);
+      }
+    }
   }, [loadComentariosNaoVistosCount]);
 
   const loadComentarios = useCallback(async (acaoId) => {
@@ -1039,6 +1136,8 @@ export function DashboardPage() {
       return;
     }
     setNovoChecklistTexto("");
+    const aid = commentsModal.id;
+    setChecklistPendentes((prev) => ({ ...prev, [aid]: (prev[aid] ?? 0) + 1 }));
     await loadChecklist(commentsModal.id);
   };
 
@@ -1049,6 +1148,22 @@ export function DashboardPage() {
     if (error) {
       setChecklistError(error.message ?? "Erro ao atualizar item.");
       if (commentsModal?.id) loadChecklist(commentsModal.id);
+      return;
+    }
+    if (commentsModal?.id) {
+      const aid = commentsModal.id;
+      setChecklistPendentes((prev) => {
+        const n = prev[aid] ?? 0;
+        const next = { ...prev };
+        if (checked) {
+          const v = Math.max(0, n - 1);
+          if (v === 0) delete next[aid];
+          else next[aid] = v;
+        } else {
+          next[aid] = n + 1;
+        }
+        return next;
+      });
     }
   };
 
@@ -1162,12 +1277,16 @@ export function DashboardPage() {
         })
       );
 
-      const [entries, mesesRes] = await Promise.all([
+      const [entries, mesesRes, kpisFullRes] = await Promise.all([
         funnelEntriesPromise,
         supabase.from("kpis_mensais").select("mes").order("mes", { ascending: false }),
+        supabase.from("kpis_mensais").select("*").order("mes", { ascending: true }),
       ]);
 
       setRows(Object.fromEntries(entries));
+
+      const mesRows = kpisFullRes.error ? [] : kpisFullRes.data ?? [];
+      setKpisMensaisAllRows(mesRows.map((r) => normalizeKpiMensaisRow(r)));
 
       const meses = [...new Set((mesesRes.data ?? []).map((r) => r.mes).filter(Boolean))].sort((a, b) =>
         String(b).localeCompare(String(a))
@@ -1349,9 +1468,9 @@ export function DashboardPage() {
     return m > 0 ? m : 1;
   }, [receitaChartSeries]);
 
-  const kpiAccordionCards = useMemo(() => {
+  const kpiExecutiveCards = useMemo(() => {
     const r = kpiMesAtualRow;
-    return KPI_ACCORDION_DEFS.map((def) => {
+    return KPI_EXEC_CARD_DEFS.map((def) => {
       let primaryCurr;
       let primaryMeta;
       let primaryKind;
@@ -1365,26 +1484,39 @@ export function DashboardPage() {
         primaryKind = def.primary.kind;
       }
       const primaryPct = r ? pctMeta(primaryCurr, primaryMeta) : null;
-      const details = def.details.map((d) => {
-        const curr = getKpiField(r, d.key);
-        const meta = getKpiField(r, d.metaKey);
-        const pct = r ? pctMeta(curr, meta) : null;
-        return {
-          label: d.label,
-          display: formatKpiMetricValue(curr, d.kind),
-          pct,
-        };
-      });
       return {
         id: def.id,
         title: def.title,
         primaryDisplay: formatKpiMetricValue(primaryCurr, primaryKind),
         primaryPct,
         metaLine: formatKpiMetaLine(primaryMeta, primaryKind),
-        details,
       };
     });
   }, [kpiMesAtualRow]);
+
+  const kpiExecModalDef = useMemo(
+    () => KPI_EXEC_CARD_DEFS.find((d) => d.id === kpiExecModalId) ?? null,
+    [kpiExecModalId]
+  );
+
+  const kpiExecModalChartData = useMemo(() => {
+    if (!kpiExecModalDef) return [];
+    return kpisMensaisAllRows.map((row) => {
+      const mesKey = row?.mes;
+      const point = {
+        mesKey,
+        mesLabel: mesKey ? mesLabelExecChart(mesKey) : "—",
+      };
+      kpiExecModalDef.chartMetrics.forEach((m) => {
+        const raw = getKpiField(row, m.key);
+        const n = Number(raw);
+        point[m.key] = Number.isFinite(n) ? n : null;
+      });
+      return point;
+    });
+  }, [kpiExecModalDef, kpisMensaisAllRows]);
+
+  const kpiExecModalYKind = kpiExecModalDef?.chartMetrics?.[0]?.kind ?? "num";
 
   const metaMetricaOptions = useMemo(() => {
     if (!metaFunil) return [];
@@ -1451,7 +1583,8 @@ export function DashboardPage() {
   }, [isMobile]);
 
   useEffect(() => {
-    if (!isMobile || !mobileNavOpen) {
+    const lockScroll = kpiExecModalId || (isMobile && mobileNavOpen);
+    if (!lockScroll) {
       document.body.style.overflow = "";
       return undefined;
     }
@@ -1459,7 +1592,16 @@ export function DashboardPage() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [isMobile, mobileNavOpen]);
+  }, [isMobile, mobileNavOpen, kpiExecModalId]);
+
+  useEffect(() => {
+    if (!kpiExecModalId) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setKpiExecModalId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [kpiExecModalId]);
 
   const asideStyle = useMemo(() => {
     if (!isMobile) return sidebarShell;
@@ -1509,6 +1651,42 @@ export function DashboardPage() {
           padding: "0 6px",
           borderRadius: 999,
           background: C.primary,
+          color: C.white,
+          fontSize: 11,
+          fontWeight: 700,
+          fontFamily: "Inter, sans-serif",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          lineHeight: 1,
+          zIndex: 1,
+          boxSizing: "border-box",
+        }}
+      >
+        {n > 99 ? "99+" : n}
+      </span>
+    );
+  };
+
+  const renderChecklistPendentesBadge = (acaoId) => {
+    const n = checklistPendentes[acaoId] ?? 0;
+    if (!n) return null;
+    const comCount = comentariosNaoVistos[acaoId] ?? 0;
+    const label = n === 1 ? "1 item de checklist pendente" : `${n} itens de checklist pendentes`;
+    const rightPx = comCount > 0 ? 34 : 8;
+    return (
+      <span
+        aria-label={label}
+        title={label}
+        style={{
+          position: "absolute",
+          top: 8,
+          right: rightPx,
+          minWidth: 20,
+          height: 20,
+          padding: "0 6px",
+          borderRadius: 999,
+          background: "#f97316",
           color: C.white,
           fontSize: 11,
           fontWeight: 700,
@@ -2478,8 +2656,7 @@ export function DashboardPage() {
                     gap: 14,
                   }}
                 >
-                  {kpiAccordionCards.map((card) => {
-                    const expanded = expandedKpiCard === card.id;
+                  {kpiExecutiveCards.map((card) => {
                     const barW =
                       card.primaryPct != null && Number.isFinite(card.primaryPct)
                         ? `${Math.min(100, Math.max(0, card.primaryPct))}%`
@@ -2491,19 +2668,17 @@ export function DashboardPage() {
                         : "—";
                     const pctBadgeBg =
                       card.primaryPct != null && Number.isFinite(card.primaryPct) ? barBg : "#94a3b8";
-                    const toggleCard = () => {
-                      setExpandedKpiCard((prev) => (prev === card.id ? null : card.id));
-                    };
+                    const openModal = () => setKpiExecModalId(card.id);
                     return (
                       <div
                         key={card.id}
                         role="button"
                         tabIndex={0}
-                        onClick={toggleCard}
+                        onClick={openModal}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            toggleCard();
+                            openModal();
                           }
                         }}
                         style={{
@@ -2512,11 +2687,10 @@ export function DashboardPage() {
                           fontFamily: "Inter, sans-serif",
                           position: "relative",
                           cursor: "pointer",
-                          paddingBottom: 36,
                           overflow: "hidden",
                         }}
                       >
-                        <div style={{ paddingRight: 28 }}>
+                        <div>
                           <div
                             style={{
                               fontSize: 11,
@@ -2587,87 +2761,135 @@ export function DashboardPage() {
                           </div>
                           <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>{card.metaLine}</div>
                         </div>
-                        <span
-                          style={{
-                            position: "absolute",
-                            right: 14,
-                            bottom: 14,
-                            fontSize: 12,
-                            color: "#94a3b8",
-                            lineHeight: 1,
-                            pointerEvents: "none",
-                          }}
-                          aria-hidden
-                        >
-                          {expanded ? "▲" : "▼"}
-                        </span>
-                        <div
-                          style={{
-                            maxHeight: expanded ? 520 : 0,
-                            opacity: expanded ? 1 : 0,
-                            overflow: "hidden",
-                            transition: "max-height 0.35s ease, opacity 0.28s ease",
-                          }}
-                        >
-                          <div
-                            style={{
-                              borderTop: "1px solid #e8ecf0",
-                              background: "#f8fafc",
-                              padding: 16,
-                              marginTop: 4,
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-                                gap: 12,
-                              }}
-                            >
-                              {card.details.map((row) => (
-                                <div
-                                  key={row.label}
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: 10,
-                                    minWidth: 0,
-                                  }}
-                                >
-                                  <span style={{ fontSize: 12, color: "#64748b", flex: 1, minWidth: 0 }}>
-                                    {row.label}
-                                  </span>
-                                  <span
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: "50%",
-                                        background: kpiBarColor(row.pct),
-                                        flexShrink: 0,
-                                      }}
-                                      aria-hidden
-                                    />
-                                    <span style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>{row.display}</span>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     );
                   })}
 
                 </div>
+
+                {kpiExecModalId && kpiExecModalDef && (
+                  <div
+                    role="presentation"
+                    onClick={() => setKpiExecModalId(null)}
+                    style={{
+                      position: "fixed",
+                      inset: 0,
+                      zIndex: 3000,
+                      background: "rgba(0,0,0,0.5)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 16,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <div
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="kpi-exec-modal-title"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: "90vw",
+                        height: "80vh",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
+                        background: C.white,
+                        borderRadius: 16,
+                        padding: 32,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 20,
+                        overflow: "auto",
+                        fontFamily: "Inter, sans-serif",
+                        boxShadow: "0 24px 64px rgba(13,27,62,0.25)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          justifyContent: "space-between",
+                          gap: 16,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <h2
+                          id="kpi-exec-modal-title"
+                          style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.dark, lineHeight: 1.25 }}
+                        >
+                          {kpiExecModalDef.title}
+                        </h2>
+                        <button
+                          type="button"
+                          aria-label="Fechar"
+                          onClick={() => setKpiExecModalId(null)}
+                          style={{
+                            flexShrink: 0,
+                            width: 40,
+                            height: 40,
+                            borderRadius: 10,
+                            border: "1px solid #e8ecf0",
+                            background: "#f8fafc",
+                            color: C.dark,
+                            fontSize: 22,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                            fontFamily: "Inter, sans-serif",
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div style={{ flex: "1 1 auto", width: "100%", minWidth: 0, height: "calc(80vh - 160px)", minHeight: 280 }}>
+                        {kpiExecModalChartData.length === 0 ||
+                        kpiExecModalChartData.every((row) =>
+                          kpiExecModalDef.chartMetrics.every((m) => row[m.key] == null || !Number.isFinite(Number(row[m.key])))
+                        ) ? (
+                          <p style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>Sem dados para este indicador.</p>
+                        ) : (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={kpiExecModalChartData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                              <CartesianGrid stroke="#e8ecf0" strokeDasharray="4 4" vertical={false} />
+                              <XAxis
+                                dataKey="mesLabel"
+                                tick={{ fill: "#64748b", fontSize: 11 }}
+                                axisLine={{ stroke: "#e8ecf0" }}
+                                tickLine={{ stroke: "#e8ecf0" }}
+                              />
+                              <YAxis
+                                tick={{ fill: "#64748b", fontSize: 11 }}
+                                axisLine={{ stroke: "#e8ecf0" }}
+                                tickLine={{ stroke: "#e8ecf0" }}
+                                tickFormatter={(v) => formatKpiExecChartValue(v, kpiExecModalYKind)}
+                              />
+                              <Tooltip
+                                content={(props) => (
+                                  <KpiExecChartTooltip {...props} metrics={kpiExecModalDef.chartMetrics} />
+                                )}
+                              />
+                              <Legend
+                                wrapperStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, paddingTop: 16 }}
+                              />
+                              {kpiExecModalDef.chartMetrics.map((m, idx) => (
+                                <Line
+                                  key={m.key}
+                                  type="monotone"
+                                  dataKey={m.key}
+                                  name={m.label}
+                                  stroke={KPI_EXEC_LINE_COLORS[idx % KPI_EXEC_LINE_COLORS.length]}
+                                  strokeWidth={2}
+                                  dot={{ r: 3, strokeWidth: 1, fill: C.white }}
+                                  activeDot={{ r: 5 }}
+                                  connectNulls
+                                />
+                              ))}
+                            </LineChart>
+                          </ResponsiveContainer>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <section
                   style={{
@@ -2906,6 +3128,7 @@ export function DashboardPage() {
                         }}
                       >
                         {renderComentariosNaoVistosBadge(item.id)}
+                        {renderChecklistPendentesBadge(item.id)}
                         <ResponsavelAvatar nome={resp} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <button
@@ -2953,6 +3176,7 @@ export function DashboardPage() {
                   {mainPendingActions.map((item) => (
                     <li key={`${item.slug}-${item.id}`} style={pendingRowStyle}>
                       {renderComentariosNaoVistosBadge(item.id)}
+                      {renderChecklistPendentesBadge(item.id)}
                       {isMobile ? (
                         <>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -3527,9 +3751,9 @@ export function DashboardPage() {
             aria-labelledby="comentarios-modal-title"
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: isMobile ? "100%" : "min(520px, 92vw)",
+              width: "min(860px, 95vw)",
               maxWidth: "100%",
-              maxHeight: isMobile ? "calc(100vh - 24px)" : "min(85vh, 640px)",
+              maxHeight: "90vh",
               background: C.bg,
               borderRadius: 12,
               boxShadow: "0 16px 48px rgba(13, 27, 62, 0.18)",
@@ -3625,7 +3849,7 @@ export function DashboardPage() {
                     display: "flex",
                     flexDirection: isMobile ? "column" : "row",
                     gap: 8,
-                    alignItems: isMobile ? "stretch" : "flex-end",
+                    alignItems: isMobile ? "stretch" : "center",
                     marginBottom: 14,
                   }}
                 >
@@ -3636,13 +3860,20 @@ export function DashboardPage() {
                     onKeyDown={(e) =>
                       e.key === "Enter" && novoChecklistTexto.trim() && novoChecklistResponsavel && addChecklistItem()
                     }
-                    placeholder="Novo item do checklist…"
+                    placeholder="Descrever a sub-tarefa..."
                     style={{ ...inputFieldStyle, flex: 1, minWidth: 0 }}
                   />
                   <select
                     value={novoChecklistResponsavel}
                     onChange={(e) => setNovoChecklistResponsavel(e.target.value)}
-                    style={{ ...selectFieldStyle, minWidth: isMobile ? undefined : 120, flexShrink: 0 }}
+                    style={{
+                      ...selectFieldStyle,
+                      width: isMobile ? "100%" : 140,
+                      minWidth: isMobile ? undefined : 140,
+                      maxWidth: "100%",
+                      flexShrink: 0,
+                      boxSizing: "border-box",
+                    }}
                   >
                     <option value="">Responsável</option>
                     {CHECKLIST_RESPONSAVEIS.map((nome) => (
