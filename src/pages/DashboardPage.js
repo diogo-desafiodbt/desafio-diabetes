@@ -414,6 +414,71 @@ function kpiMetaReceitaTotal(row) {
   return sumKpiNumericParts(normalized, KPI_META_RECEITA_PART_KEYS);
 }
 
+function formatKpiMetricValue(val, kind) {
+  if (val == null || val === "") return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "—";
+  if (kind === "money") return formatMoneyBRL(n);
+  if (kind === "pct") return `${n.toLocaleString("pt-BR")}%`;
+  return fmtCell(n);
+}
+
+function formatKpiMetaLine(meta, kind) {
+  if (meta == null || meta === "") return "Meta: —";
+  const n = Number(meta);
+  if (!Number.isFinite(n)) return "Meta: —";
+  if (kind === "money") return `Meta: ${formatMoneyBRL(n)}`;
+  if (kind === "pct") return `Meta: ${n.toLocaleString("pt-BR")}%`;
+  return `Meta: ${fmtCell(n)}`;
+}
+
+const KPI_ACCORDION_DEFS = [
+  {
+    id: "financeiro",
+    title: "💰 FINANCEIRO",
+    primary: { type: "receita_total" },
+    details: [
+      { label: "Receita Suplemento", key: "receita_suplemento", metaKey: "meta_receita_suplemento", kind: "money" },
+      { label: "Receita Livro", key: "receita_livro", metaKey: "meta_receita_livro", kind: "money" },
+      { label: "Receita App", key: "receita_app", metaKey: "meta_receita_app", kind: "money" },
+      { label: "Receita AdSense", key: "receita_adsense", metaKey: "meta_receita_adsense", kind: "money" },
+      { label: "Pró-labore", key: "pro_labore", metaKey: "meta_pro_labore", kind: "money" },
+      { label: "Margem Operacional (%)", key: "margem_operacional", metaKey: "meta_margem_operacional", kind: "pct" },
+    ],
+  },
+  {
+    id: "suplemento",
+    title: "💊 SUPLEMENTO",
+    primary: { key: "compradores_total", metaKey: "meta_compradores", kind: "num" },
+    details: [
+      { label: "Suplementos Vendidos", key: "suplementos_vendidos", metaKey: "meta_suplementos", kind: "num" },
+      { label: "Taxa de Recompra (%)", key: "taxa_recompra", metaKey: "meta_taxa_recompra", kind: "pct" },
+      { label: "Receita Suplemento", key: "receita_suplemento", metaKey: "meta_receita_suplemento", kind: "money" },
+    ],
+  },
+  {
+    id: "primeiro_passo",
+    title: "📖 PRIMEIRO PASSO",
+    primary: { key: "livros_vendidos", metaKey: "meta_livros", kind: "num" },
+    details: [
+      { label: "Vendas Pagas Livro", key: "vendas_pagas_livro", metaKey: "meta_vendas_pagas_livro", kind: "num" },
+      { label: "CAC Livro (R$)", key: "cac_livro", metaKey: "meta_cac_livro", kind: "money" },
+      { label: "Margem Campanha (%)", key: "margem_campanha", metaKey: "meta_margem_campanha", kind: "pct" },
+      { label: "Receita Livro", key: "receita_livro", metaKey: "meta_receita_livro", kind: "money" },
+    ],
+  },
+  {
+    id: "audiencia",
+    title: "📣 AUDIÊNCIA",
+    primary: { key: "views_totais", metaKey: "meta_views", kind: "num" },
+    details: [
+      { label: "Inscritos Novos", key: "inscritos_novos", metaKey: "meta_inscritos", kind: "num" },
+      { label: "Clicks Totais", key: "clicks_totais", metaKey: "meta_clicks", kind: "num" },
+      { label: "Click Rate (%)", key: "click_rate", metaKey: "meta_click_rate", kind: "pct" },
+    ],
+  },
+];
+
 function IconGrid() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -758,6 +823,7 @@ export function DashboardPage() {
   const [kpiForm, setKpiForm] = useState(emptyKpiForm);
   const [kpiFormSaving, setKpiFormSaving] = useState(false);
   const [kpiFormFeedback, setKpiFormFeedback] = useState(null);
+  const [expandedKpiCard, setExpandedKpiCard] = useState(null);
 
   const [commentsModal, setCommentsModal] = useState(null);
   const [comentariosList, setComentariosList] = useState([]);
@@ -1081,35 +1147,42 @@ export function DashboardPage() {
     return m > 0 ? m : 1;
   }, [receitaChartSeries]);
 
-  const kpiExecItems = useMemo(() => {
+  const kpiAccordionCards = useMemo(() => {
     const r = kpiMesAtualRow;
-    const p = kpiMesAnteriorRow;
-    const item = (label, keyCurr, keyMeta, kind) => {
-      const currVal = getKpiField(r, keyCurr);
-      const metaVal = getKpiField(r, keyMeta);
-      const prevVal = getKpiField(p, keyCurr);
-      const pct = r ? pctMeta(currVal, metaVal) : null;
-      const display =
-        currVal == null ? "—" : kind === "money" ? formatMoneyBRL(currVal) : fmtCell(currVal);
-      const varBadge = variationBadgeParts(prevVal, currVal);
-      return { label, display, pct, varBadge };
-    };
-    const receitaCurr = kpiReceitaTotal(r);
-    const receitaMeta = kpiMetaReceitaTotal(r);
-    const receitaPrev = kpiReceitaTotal(p);
-    const receitaCard = {
-      label: "Receita Total",
-      display: receitaCurr == null ? "—" : formatMoneyBRL(receitaCurr),
-      pct: r ? pctMeta(receitaCurr, receitaMeta) : null,
-      varBadge: variationBadgeParts(receitaPrev, receitaCurr),
-    };
-    return [
-      receitaCard,
-      item("Suplementos Vendidos", "suplementos_vendidos", "meta_suplementos", "num"),
-      item("Primeiro Passo Vendidos", "livros_vendidos", "meta_livros", "num"),
-      item("Compradores Suplemento", "compradores_total", "meta_compradores", "num"),
-    ];
-  }, [kpiMesAtualRow, kpiMesAnteriorRow]);
+    return KPI_ACCORDION_DEFS.map((def) => {
+      let primaryCurr;
+      let primaryMeta;
+      let primaryKind;
+      if (def.primary.type === "receita_total") {
+        primaryCurr = kpiReceitaTotal(r);
+        primaryMeta = kpiMetaReceitaTotal(r);
+        primaryKind = "money";
+      } else {
+        primaryCurr = getKpiField(r, def.primary.key);
+        primaryMeta = getKpiField(r, def.primary.metaKey);
+        primaryKind = def.primary.kind;
+      }
+      const primaryPct = r ? pctMeta(primaryCurr, primaryMeta) : null;
+      const details = def.details.map((d) => {
+        const curr = getKpiField(r, d.key);
+        const meta = getKpiField(r, d.metaKey);
+        const pct = r ? pctMeta(curr, meta) : null;
+        return {
+          label: d.label,
+          display: formatKpiMetricValue(curr, d.kind),
+          pct,
+        };
+      });
+      return {
+        id: def.id,
+        title: def.title,
+        primaryDisplay: formatKpiMetricValue(primaryCurr, primaryKind),
+        primaryPct,
+        metaLine: formatKpiMetaLine(primaryMeta, primaryKind),
+        details,
+      };
+    });
+  }, [kpiMesAtualRow]);
 
   const metaMetricaOptions = useMemo(() => {
     if (!metaFunil) return [];
@@ -2139,86 +2212,195 @@ export function DashboardPage() {
                     gap: 14,
                   }}
                 >
-                  {kpiExecItems.map((kpi) => {
-                    const barW = kpi.pct != null && Number.isFinite(kpi.pct) ? `${Math.min(100, Math.max(0, kpi.pct))}%` : "0%";
-                    const barBg = kpiBarColor(kpi.pct);
-                    const pctLabel =
-                      kpi.pct != null && Number.isFinite(kpi.pct) ? `${kpi.pct.toFixed(1)}% da meta` : "Sem dados da meta";
+                  {kpiAccordionCards.map((card) => {
+                    const expanded = expandedKpiCard === card.id;
+                    const barW =
+                      card.primaryPct != null && Number.isFinite(card.primaryPct)
+                        ? `${Math.min(100, Math.max(0, card.primaryPct))}%`
+                        : "0%";
+                    const barBg = kpiBarColor(card.primaryPct);
+                    const pctBadgeText =
+                      card.primaryPct != null && Number.isFinite(card.primaryPct)
+                        ? `${card.primaryPct.toFixed(1)}%`
+                        : "—";
+                    const pctBadgeBg =
+                      card.primaryPct != null && Number.isFinite(card.primaryPct) ? barBg : "#94a3b8";
+                    const toggleCard = () => {
+                      setExpandedKpiCard((prev) => (prev === card.id ? null : card.id));
+                    };
                     return (
                       <div
-                        key={kpi.label}
+                        key={card.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={toggleCard}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleCard();
+                          }
+                        }}
                         style={{
                           ...cardEnterprise,
                           border: "0.5px solid #e8ecf0",
                           fontFamily: "Inter, sans-serif",
                           position: "relative",
+                          cursor: "pointer",
+                          paddingBottom: 36,
+                          overflow: "hidden",
                         }}
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "flex-start",
-                            gap: 8,
-                            marginBottom: 10,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: "#94a3b8",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.08em",
-                              fontWeight: 700,
-                              lineHeight: 1.3,
-                              minWidth: 0,
-                            }}
-                          >
-                            {kpi.label}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 700,
-                              padding: "2px 8px",
-                              borderRadius: 20,
-                              background: kpi.varBadge.bg,
-                              color: kpi.varBadge.color,
-                              whiteSpace: "nowrap",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {kpi.varBadge.label}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            fontSize: isMobile ? 18 : 22,
-                            fontWeight: 800,
-                            color: C.dark,
-                            marginBottom: 12,
-                            letterSpacing: "-0.02em",
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {kpi.display}
-                        </div>
-                        <div style={{ height: 6, background: "#f1f5f9", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+                        <div style={{ paddingRight: 28 }}>
                           <div
                             style={{
-                              height: "100%",
-                              width: barW,
-                              background: barBg,
-                              borderRadius: 4,
-                              transition: "width 0.35s ease",
+                              fontSize: 11,
+                              color: "#64748b",
+                              fontWeight: 600,
+                              letterSpacing: "1px",
+                              textTransform: "uppercase",
+                              marginBottom: 10,
                             }}
-                          />
+                          >
+                            {card.title}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              marginBottom: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 28,
+                                fontWeight: 700,
+                                color: C.dark,
+                                letterSpacing: "-0.02em",
+                                lineHeight: 1.15,
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {card.primaryDisplay}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: "4px 10px",
+                                borderRadius: 20,
+                                background: pctBadgeBg,
+                                color: C.white,
+                                whiteSpace: "nowrap",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {pctBadgeText}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              height: 4,
+                              background: "#f1f5f9",
+                              borderRadius: 4,
+                              overflow: "hidden",
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: "100%",
+                                width: barW,
+                                background: barBg,
+                                borderRadius: 4,
+                                transition: "width 0.35s ease",
+                              }}
+                            />
+                          </div>
+                          <div style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>{card.metaLine}</div>
                         </div>
-                        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{pctLabel}</div>
+                        <span
+                          style={{
+                            position: "absolute",
+                            right: 14,
+                            bottom: 14,
+                            fontSize: 12,
+                            color: "#94a3b8",
+                            lineHeight: 1,
+                            pointerEvents: "none",
+                          }}
+                          aria-hidden
+                        >
+                          {expanded ? "▲" : "▼"}
+                        </span>
+                        <div
+                          style={{
+                            maxHeight: expanded ? 520 : 0,
+                            opacity: expanded ? 1 : 0,
+                            overflow: "hidden",
+                            transition: "max-height 0.35s ease, opacity 0.28s ease",
+                          }}
+                        >
+                          <div
+                            style={{
+                              borderTop: "1px solid #e8ecf0",
+                              background: "#f8fafc",
+                              padding: 16,
+                              marginTop: 4,
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+                                gap: 12,
+                              }}
+                            >
+                              {card.details.map((row) => (
+                                <div
+                                  key={row.label}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  <span style={{ fontSize: 12, color: "#64748b", flex: 1, minWidth: 0 }}>
+                                    {row.label}
+                                  </span>
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: "50%",
+                                        background: kpiBarColor(row.pct),
+                                        flexShrink: 0,
+                                      }}
+                                      aria-hidden
+                                    />
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>{row.display}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
+
                 </div>
 
                 <section
